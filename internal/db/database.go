@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strider/internal/traces"
+	"strings"
 	"sync"
 	"time"
-
-	"strider/internal/traces"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
@@ -24,6 +24,21 @@ const (
 const (
 	defaultFlushInterval = 10 * time.Second
 	defaultMaxBufSize    = 10_000
+	defaultTimeout       = 5 * time.Second
+)
+
+type OrderByField string
+type Direction string
+
+const (
+	OrderByStartTime  OrderByField = "start_time"
+	OrderByDurationNs OrderByField = "duration_ns"
+	OrderBySpanCount  OrderByField = "span_count"
+)
+
+const (
+	Asc  Direction = "ASC"
+	Desc Direction = "DESC"
 )
 
 type DB struct {
@@ -32,6 +47,7 @@ type DB struct {
 	buf        []traces.Span
 	interval   time.Duration
 	maxBufSize int
+	timeout    time.Duration
 }
 
 func New() (*DB, error) {
@@ -40,10 +56,20 @@ func New() (*DB, error) {
 		return nil, fmt.Errorf("%s env var not set", dbURLVar)
 	}
 
+	timeout := defaultTimeout
+	if v := os.Getenv("DB_TIMEOUT"); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil {
+			timeout = parsed
+		}
+	}
+
 	opts, err := clickhouse.ParseDSN(url)
 	if err != nil {
 		return nil, fmt.Errorf("parse clickhouse dsn: %w", err)
 	}
+
+	opts.DialTimeout = timeout
+	opts.ReadTimeout = timeout
 
 	conn, err := clickhouse.Open(opts)
 	if err != nil {
@@ -72,6 +98,7 @@ func New() (*DB, error) {
 		conn:       conn,
 		interval:   interval,
 		maxBufSize: maxBufSize,
+		timeout:    timeout,
 	}
 
 	if err := d.migrate(context.Background()); err != nil {
@@ -85,26 +112,60 @@ func (d *DB) Close() error {
 	return d.conn.Close()
 }
 
-const createSpansTable = `
-CREATE TABLE IF NOT EXISTS spans (
-    trace_id            String,
-    span_id             String,
-    parent_span_id      String,
-    service_name        LowCardinality(String),
-    name                String,
-    kind                Int32,
-    start_time          DateTime64(9),
-    duration_ns         UInt64,
-    status_code         Int32,
-    status_message      String,
-    attributes          Map(String, String),
-    resource_attributes Map(String, String)
-) ENGINE = MergeTree()
-ORDER BY (service_name, start_time, trace_id, span_id)
-`
-
 func (d *DB) migrate(ctx context.Context) error {
-	return d.conn.Exec(ctx, createSpansTable)
+	const createSpansTable = `
+		CREATE TABLE IF NOT EXISTS spans (
+			trace_id            String,
+			span_id             String,
+			parent_span_id      String,
+			service_name        LowCardinality(String),
+			name                String,
+			kind                Int32,
+			start_time          DateTime64(9),
+			duration_ns         UInt64,
+			status_code         Int32,
+			status_message      String,
+			attributes          Map(String, String),
+			resource_attributes Map(String, String)
+		) ENGINE = MergeTree()
+		ORDER BY (service_name, start_time, trace_id, span_id)
+		`
+	const createTraceSummaryTable = `
+		CREATE TABLE IF NOT EXISTS trace_summary (
+			trace_id     String,
+			root_name    String,
+			service_name LowCardinality(String),
+			start_time   DateTime64(9),
+			duration_ns  UInt64,
+			span_count   UInt64
+		) ENGINE = ReplacingMergeTree()
+		ORDER BY (trace_id)
+		TTL toDateTime(start_time) + INTERVAL 7 DAY
+		`
+	const createTraceSummaryMV = `
+		CREATE MATERIALIZED VIEW IF NOT EXISTS trace_summary_mv
+		TO trace_summary
+		AS
+		SELECT
+			trace_id,
+			anyIf(name, parent_span_id = '')         AS root_name,
+			anyIf(service_name, parent_span_id = '') AS service_name,
+			anyIf(start_time, parent_span_id = '')   AS start_time,
+			anyIf(duration_ns, parent_span_id = '')  AS duration_ns,
+			count(*)                                  AS span_count
+		FROM spans
+		GROUP BY trace_id
+		`
+	if err := d.conn.Exec(ctx, createSpansTable); err != nil {
+		return fmt.Errorf("create spans table: %w", err)
+	}
+	if err := d.conn.Exec(ctx, createTraceSummaryTable); err != nil {
+		return fmt.Errorf("create trace_summary table: %w", err)
+	}
+	if err := d.conn.Exec(ctx, createTraceSummaryMV); err != nil {
+		return fmt.Errorf("create trace_summary mv: %w", err)
+	}
+	return nil
 }
 
 // Enqueue appends spans to the in-memory buffer. If the buffer exceeds
@@ -174,51 +235,157 @@ func (d *DB) saveSpans(ctx context.Context, spans []traces.Span) error {
 	return batch.Send()
 }
 
-// SpanField identifies which column FindById searches by.
-type SpanField string
+// findAll streams rows of T from the query built by buildListQuery. Iteration stops
+// early when the caller breaks. Errors are yielded as the second value, after which
+// the iterator yields no further values.
+func findAll[T any](
+	ctx context.Context,
+	d *DB,
+	prefix string,
+	orderBy OrderByField,
+	direction Direction,
+	condition string,
+) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		var zero T
+		q := d.buildListQuery(prefix, orderBy, direction, condition)
 
-const (
-	ByTraceId SpanField = "trace_id"
-	BySpanId  SpanField = "span_id"
-)
-
-// FindAll streams all spans one by one. Iteration stops early when
-// the caller breaks. Errors are yielded as the second value.
-func (d *DB) FindAll(ctx context.Context) iter.Seq2[traces.SpanSummary, error] {
-	return func(yield func(traces.SpanSummary, error) bool) {
-		const q = `SELECT trace_id, span_id, service_name, name, kind, start_time, duration_ns, status_code FROM spans`
 		rows, err := d.conn.Query(ctx, q)
 		if err != nil {
-			yield(traces.SpanSummary{}, fmt.Errorf("query: %w", err))
+			yield(zero, fmt.Errorf("query: %w", err))
 			return
 		}
 		defer rows.Close()
 
 		for rows.Next() {
-			var s traces.SpanSummary
-			if err := rows.ScanStruct(&s); err != nil {
-				yield(traces.SpanSummary{}, fmt.Errorf("scan: %w", err))
+			var row T
+			if err := rows.ScanStruct(&row); err != nil {
+				yield(zero, fmt.Errorf("scan: %w", err))
 				return
 			}
-			if !yield(s, nil) {
+			if !yield(row, nil) {
 				return
 			}
 		}
 
 		if err := rows.Err(); err != nil {
-			yield(traces.SpanSummary{}, fmt.Errorf("rows: %w", err))
+			yield(zero, fmt.Errorf("rows: %w", err))
 		}
 	}
 }
 
-// FindById returns all spans matching id in the given field.
-func (d *DB) FindById(ctx context.Context, id string, field SpanField) ([]traces.Span, error) {
-	q := fmt.Sprintf(`SELECT * FROM spans WHERE %s = ?`, field)
+// FindAllTraces streams trace summaries one by one. Iteration stops early when
+// the caller breaks. Errors are yielded as the second value, after which the
+// iterator yields no further values.
+func (d *DB) FindAllTraces(
+	ctx context.Context,
+	orderBy OrderByField,
+	direction Direction,
+	condition string,
+) iter.Seq2[traces.TraceSummary, error] {
+	return findAll[traces.TraceSummary](
+		ctx, d, `SELECT * FROM trace_summary FINAL `, orderBy, direction, condition,
+	)
+}
 
-	var result []traces.Span
-	if err := d.conn.Select(ctx, &result, q, id); err != nil {
-		return nil, fmt.Errorf("query: %w", err)
+// FindAllSpans streams span summaries one by one. Iteration stops early when the
+// caller breaks. Errors are yielded as the second value, after which the iterator
+// yields no further values. OrderBySpanCount is normalized to OrderByStartTime
+// because span_count is not a column on the spans table.
+func (d *DB) FindAllSpans(
+	ctx context.Context,
+	orderBy OrderByField,
+	direction Direction,
+	condition string,
+) iter.Seq2[traces.SpanSummary, error] {
+	if orderBy == OrderBySpanCount {
+		orderBy = OrderByStartTime
+	}
+	return findAll[traces.SpanSummary](
+		ctx, d,
+		`SELECT trace_id, span_id, service_name, name, kind, start_time, duration_ns, status_code FROM spans `,
+		orderBy, direction, condition,
+	)
+}
+
+// FindByTraceId fetches all spans for the given trace id and assembles them
+// into a Trace tree. Returns a zero-value Trace (empty TraceId) when no spans exist.
+func (d *DB) FindByTraceId(ctx context.Context, traceId string) (traces.Trace, error) {
+	var spans []traces.Span
+	if err := d.conn.Select(ctx, &spans,
+		`SELECT * FROM spans WHERE trace_id = ?`, traceId); err != nil {
+		return traces.Trace{}, fmt.Errorf("query spans: %w", err)
+	}
+	return buildTrace(spans), nil
+}
+
+func (d *DB) buildWhere(condition string) string {
+	if condition == "" {
+		return ""
+	}
+	if !strings.HasPrefix(condition, "WHERE") {
+		condition = "WHERE " + condition
+	}
+	return condition
+}
+
+// buildListQuery composes the full SELECT for a streaming list query: the caller's
+// prefix, the optional WHERE clause from condition, and an ORDER BY clause. Empty
+// orderBy and direction fall back to the start_time / DESC defaults.
+func (d *DB) buildListQuery(
+	prefix string,
+	orderBy OrderByField,
+	direction Direction,
+	condition string,
+) string {
+	if orderBy == "" {
+		orderBy = OrderByStartTime
+	}
+	if direction == "" {
+		direction = Desc
+	}
+	return prefix + d.buildWhere(condition) +
+		` ORDER BY ` + string(orderBy) + ` ` + string(direction)
+}
+
+func buildTrace(spans []traces.Span) traces.Trace {
+	// pass 1: index by spanId
+	nodes := make(map[string]*traces.SpanNode, len(spans))
+	for i := range spans {
+		nodes[spans[i].SpanId] = &traces.SpanNode{Span: spans[i]}
 	}
 
-	return result, nil
+	// pass 2: wire tree and extract trace metadata
+	t := traces.Trace{}
+	var earliestRoot *traces.Span
+
+	for _, node := range nodes {
+		s := node.Span
+
+		if t.TraceId == "" {
+			t.TraceId = s.TraceId
+		}
+		if t.StartTime.IsZero() || s.StartTime.Before(t.StartTime) {
+			t.StartTime = s.StartTime
+		}
+
+		if s.ParentSpanId == "" {
+			t.Roots = append(t.Roots, node)
+			if earliestRoot == nil || s.StartTime.Before(earliestRoot.StartTime) {
+				earliestRoot = &node.Span
+			}
+		} else if parent, ok := nodes[s.ParentSpanId]; ok {
+			parent.SubSpans = append(parent.SubSpans, node)
+		} else {
+			t.Roots = append(t.Roots, node)
+		}
+	}
+
+	if earliestRoot != nil {
+		t.RootName = earliestRoot.Name
+		t.ServiceName = earliestRoot.ServiceName
+		t.DurationNs = earliestRoot.DurationNs
+	}
+
+	return t
 }

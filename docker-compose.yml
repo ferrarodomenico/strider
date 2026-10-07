@@ -1,0 +1,10 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.1
+    environment:
+      CLICKHOUSE_DB: strider
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: strider
+    ports:
+      - "9000:9000"
+      - "8123:8123"

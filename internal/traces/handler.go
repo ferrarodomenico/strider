@@ -1,8 +1,29 @@
 package traces
 
 import (
+	"context"
+
+	collectortracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
+
+// Handler implements the OTLP gRPC TraceService.
+// It takes an enqueue func to decouple from the db package and avoid import cycles.
+type Handler struct {
+	collectortracepb.UnimplementedTraceServiceServer
+	enqueue func([]Span)
+}
+
+func NewHandler(enqueue func([]Span)) *Handler {
+	return &Handler{enqueue: enqueue}
+}
+
+func (h *Handler) Export(_ context.Context, req *collectortracepb.ExportTraceServiceRequest) (*collectortracepb.ExportTraceServiceResponse, error) {
+	for _, rs := range req.ResourceSpans {
+		h.enqueue(flatten(rs))
+	}
+	return &collectortracepb.ExportTraceServiceResponse{}, nil
+}
 
 func flatten(rs *tracepb.ResourceSpans) []Span {
 	var serviceName string
@@ -20,31 +41,4 @@ func flatten(rs *tracepb.ResourceSpans) []Span {
 		}
 	}
 	return spans
-}
-
-func buildTrees(spans []Span) map[string][]*Span {
-	// index all spans by id
-	byId := make(map[string]*Span, len(spans))
-	for i := range spans {
-		byId[spans[i].SpanId] = &spans[i]
-	}
-
-	// collect root spans (no parent, or parent not in this batch) per trace
-	roots := make(map[string][]*Span)
-	for i := range spans {
-		s := &spans[i]
-		if s.ParentSpanId == "" {
-			roots[s.TraceId] = append(roots[s.TraceId], s)
-			continue
-		}
-		parent, ok := byId[s.ParentSpanId]
-		if !ok {
-			// orphan: parent missing from batch, treat as root
-			roots[s.TraceId] = append(roots[s.TraceId], s)
-			continue
-		}
-		parent.SubSpans = append(parent.SubSpans, s)
-	}
-
-	return roots // map[traceId] -> slice of root spans for that trace
 }

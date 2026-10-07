@@ -11,6 +11,40 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
+type SpanInterface interface {
+	TraceId() string
+	SpanId() string
+	ParentSpanId() string
+	ServiceName() string
+	Name() string
+	Kind() int32
+	StartTime() time.Time
+	DurationNs() uint64
+	StatusCode() int32
+	StatusMessage() string
+	Attributes() map[string]string
+	ResourceAttributes() map[string]string
+	SubSpans() []*Span
+}
+
+type Trace struct {
+	TraceId     string
+	RootName    string
+	ServiceName string
+	StartTime   time.Time
+	DurationNs  uint64
+	Roots       []*SpanNode
+}
+
+type TraceSummary struct {
+	TraceId     string    `json:"trace_id" ch:"trace_id"`
+	RootName    string    `json:"root_name" ch:"root_name"`
+	ServiceName string    `json:"service_name" ch:"service_name"`
+	StartTime   time.Time `json:"start_time" ch:"start_time"`
+	DurationNs  uint64    `json:"duration_ns" ch:"duration_ns"`
+	SpanCount   uint64    `json:"span_count" ch:"span_count"`
+}
+
 type Span struct {
 	TraceId            string            `json:"trace_id" ch:"trace_id"            `
 	SpanId             string            `json:"span_id" ch:"span_id"             `
@@ -24,7 +58,11 @@ type Span struct {
 	StatusMessage      string            `json:"status_message" ch:"status_message"      `
 	Attributes         map[string]string `json:"attributes" ch:"attributes"          `
 	ResourceAttributes map[string]string `json:"resource_attributes" ch:"resource_attributes" `
-	SubSpans           []*Span           `json:"sub_spans,omitempty"`
+}
+
+type SpanNode struct {
+	Span     Span
+	SubSpans []*SpanNode
 }
 
 type SpanSummary struct {
@@ -61,9 +99,6 @@ func NewSpan(span *tracepb.Span, serviceName string, resourceAttrs map[string]st
 		ResourceAttributes: resourceAttrs,
 	}
 }
-
-// Trace is a map of spanId → Span, representing all spans sharing a traceId.
-type Trace map[string]Span
 
 func encodeToString(src []byte) string {
 	if src == nil {

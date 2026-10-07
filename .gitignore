@@ -1,0 +1,6 @@
+# Orchestration/agent working docs
+.docs/
+.env
+.claude/
+bin/
+.vscode/
