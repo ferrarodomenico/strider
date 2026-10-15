@@ -2,10 +2,12 @@ ifeq ($(OS),Windows_NT)
     EXT      := .exe
     MKDIR    := if not exist bin mkdir bin
     RUN_TEST := start /B "" "$(BINARY)" & timeout /t 2 /nobreak >nul & "$(POPULATE)"
+    RUN_ALL  := start /B "" go run ./cmd/main.go & cd strider-ui && npm start
 else
     EXT      :=
     MKDIR    := mkdir -p bin
     RUN_TEST := $(BINARY) & sleep 2 && $(POPULATE); wait
+    RUN_ALL  := go run ./cmd/main.go & cd strider-ui && npm start
 endif
 
 BINARY   := bin/strider$(EXT)
@@ -33,7 +35,7 @@ run-test: build docker-up
 	$(RUN_TEST)
 
 strider:
-	go run ./cmd/main.go
+	$(RUN_ALL)
 
 test:
 	go run ./cmd/populate/main.go

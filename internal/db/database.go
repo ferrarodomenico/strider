@@ -105,6 +105,12 @@ func New() (*DB, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
+	if os.Getenv("MOCK_DATA") != "" {
+		if err := d.seedMockData(context.Background()); err != nil {
+			return nil, fmt.Errorf("seed mock data: %w", err)
+		}
+	}
+
 	return d, nil
 }
 

@@ -1,0 +1,9 @@
+export type ViewMode = 'traces' | 'spans';
+export type Direction = 'ASC' | 'DESC';
+export type OrderByField = 'start_time' | 'duration_ns' | 'span_count';
+export type FilterMode = 'raw' | 'builder';
+export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error';
+export type Operator = '=' | '!=' | '<' | '>' | 'LIKE';
+export type BuilderField = 'service_name' | 'name' | 'start_time' | 'duration_ns' | 'status_code' | 'kind';
+export type RelativeRange = '15m' | '1h' | '24h' | '7d';
+export type TimeMode = 'relative' | 'absolute';

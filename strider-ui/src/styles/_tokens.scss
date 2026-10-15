@@ -1,0 +1,52 @@
+:root {
+  // Purple / near-black palette
+  --color-bg: #0d0d0f;
+  --color-accent: #7c3aed;
+  --color-text: #ededf0;
+  --color-dim: #86868f;
+
+  // Derived surfaces (explicit values for clarity with new base)
+  --color-surface: #18181b;
+  --color-surface-2: #1f1f23;
+  --color-border: #2a2a30;
+  --color-accent-soft: color-mix(in srgb, var(--color-accent) 18%, transparent);
+
+  // Typography
+  --font-display: 'Clash Display', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --font-mono: 'Commit Mono', 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+
+  // Spacing scale
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  // Border radii
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  // Type scale
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.75rem;
+
+  // Z-index layers
+  --z-base: 0;
+  --z-overlay: 10;
+  --z-sticky: 20;
+  --z-modal: 30;
+
+  // Motion
+  --motion-fast: 120ms;
+  --motion-base: 240ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  // Waterfall layout
+  --tree-col: 320px;
+  --indent: 20px;
+}

@@ -1,0 +1,35 @@
+<div class="trace-detail">
+  <!-- Narrow-viewport notice (CSS media query) -->
+  <div class="narrow-notice" aria-label="Viewport notice">
+    This view is optimized for viewports ≥ 1024 px wide.
+  </div>
+
+  @switch (store.status()) {
+    @case ('loading') {
+      <app-state-message variant="loading" message="Loading trace…" />
+    }
+    @case ('error') {
+      <app-state-message variant="error" [message]="store.error()!" />
+    }
+    @case ('loaded') {
+      <app-trace-header [trace]="store.trace()!" />
+      <div class="body">
+        <div class="waterfall-col">
+          <app-waterfall
+            [rows]="store.flatRows()"
+            [durationNs]="store.trace()!.durationNs"
+            [selectedSpanId]="store.selectedSpanId()"
+            (spanSelect)="store.selectSpan($event)"
+            (toggleCollapse)="store.toggleCollapse($event)"
+          />
+        </div>
+        <div class="detail-col">
+          <app-span-detail-panel [span]="store.selectedSpan()" />
+        </div>
+      </div>
+    }
+    @default {
+      <app-state-message variant="loading" message="Initializing…" />
+    }
+  }
+</div>
