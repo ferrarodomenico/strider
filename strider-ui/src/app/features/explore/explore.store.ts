@@ -12,6 +12,7 @@ import {
   StreamStatus,
   ViewMode,
 } from '@app/core/models/view.types';
+import { resolveDateLiterals } from '@app/core/util/date-literal.util';
 import { compileCondition } from '@app/core/util/query-builder.util';
 
 @Injectable({ providedIn: 'root' })
@@ -116,7 +117,7 @@ export class ExploreStore {
       {
         orderBy: this.orderBy(),
         direction: this.direction(),
-        condition: this.compiledCondition(),
+        condition: resolveDateLiterals(this.compiledCondition()),
       },
       mapFn as (raw: unknown) => TraceSummary | SpanSummary,
     );

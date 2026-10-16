@@ -5,8 +5,8 @@ import (
 	"iter"
 	"log/slog"
 	"net/http"
-
 	"strider/internal/db"
+	"time"
 )
 
 const contentTypeNDJSON = "application/x-ndjson"
@@ -97,5 +97,58 @@ func handleFindTraceById(d *db.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(trace)
+	}
+}
+
+func handleCountTracesOverInterval(d *db.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+
+		end := time.Now()
+		start := end.AddDate(-1, 0, 0) // default: one year ago
+		interval := time.Hour          // default: hourly
+
+		if s := q.Get("start"); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				http.Error(w, "invalid start parameter, expected RFC3339 (e.g. 2026-10-16T14:30:00Z)", http.StatusBadRequest)
+				return
+			}
+			start = t
+		}
+
+		if s := q.Get("end"); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				http.Error(w, "invalid end parameter, expected RFC3339 (e.g. 2026-10-16T14:30:00Z)", http.StatusBadRequest)
+				return
+			}
+			end = t
+		}
+
+		if s := q.Get("interval"); s != "" {
+			dur, err := time.ParseDuration(s)
+			if err != nil || dur < time.Second {
+				http.Error(w, "invalid interval parameter, expected a duration of at least 1s (e.g. 30m, 1h, 24h)", http.StatusBadRequest)
+				return
+			}
+			interval = dur
+		}
+
+		if !start.Before(end) {
+			http.Error(w, "start must be before end", http.StatusBadRequest)
+			return
+		}
+
+		result, err := d.CountByInterval(r.Context(), interval, start, end)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
 	}
 }

@@ -76,6 +76,11 @@ type SpanSummary struct {
 	StatusCode  int32     `json:"status_code" ch:"status_code"`
 }
 
+type TracesOverInterval struct {
+	Date  time.Time `json:"start_time"`
+	Count uint64    `json:"count"`
+}
+
 func NewSpan(span *tracepb.Span, serviceName string, resourceAttrs map[string]string) Span {
 	var statusCode int32
 	var statusMessage string

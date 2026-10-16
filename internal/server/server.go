@@ -34,21 +34,29 @@ func EnvAddr(envVar, fallback string) string {
 	return fallback
 }
 
-// StartGRPC binds a TCP listener on addr and serves the OTLP TraceService in a
-// background goroutine. The listener is bound before returning, so the returned
-// address is immediately dialable. The returned shutdown func gracefully stops
-// the server and blocks until the listener is closed.
+// StartGRPC resolves the receive limit from GRPC_MAX_RECV_ENABLED / GRPC_MAX_RECV_SIZE,
+// binds a TCP listener on addr and serves the OTLP TraceService in a background
+// goroutine. An invalid limit is returned before any listener is bound; callers
+// start gRPC before HTTP so that a config error leaves no listener at all. The
+// listener is bound before returning, so the returned address is immediately
+// dialable. The returned shutdown func gracefully stops the server and blocks
+// until the listener is closed.
 func StartGRPC(database *db.DB, addr string) (string, func(), error) {
+	maxRecvMsgSize, err := resolveMaxRecvMsgSize(os.Getenv)
+	if err != nil {
+		return "", nil, err // already names the variable and the value
+	}
+
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		return "", nil, fmt.Errorf("grpc listen on %s: %w", addr, err)
 	}
 
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(grpc.MaxRecvMsgSize(maxRecvMsgSize))
 	collectortracepb.RegisterTraceServiceServer(srv, traces.NewHandler(database.Enqueue))
 
 	go func() {
-		slog.Info("grpc listening", "addr", lis.Addr().String())
+		slog.Info("grpc listening", "addr", lis.Addr().String(), "max_recv_msg_size", maxRecvMsgSize)
 		if err := srv.Serve(lis); err != nil {
 			slog.Error("grpc serve", "err", err)
 		}

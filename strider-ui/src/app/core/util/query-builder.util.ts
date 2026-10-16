@@ -1,6 +1,6 @@
 import { BuilderRow, FieldDef } from '@app/core/models/builder-row.model';
 import { BuilderField, Operator } from '@app/core/models/view.types';
-import { datetimeLocalToIso, relativeRangeToIso } from './datetime.util';
+import { datetimeLocalToIso, isoToLocalDisplay, relativeRangeToIso } from './datetime.util';
 
 // Operator groups reused per field type
 const STRING_OPERATORS: Operator[] = ['=', '!=', 'LIKE'];
@@ -28,15 +28,14 @@ export const quoteString = (v: string): string => `'${v.replace(/'/g, "''")}'`;
 const compileStartTime = (row: BuilderRow): string | null => {
   if (row.timeMode === 'relative') {
     if (!row.relativeRange) return null;
-    const iso = relativeRangeToIso(row.relativeRange);
-    return `start_time > parseDateTime64BestEffort(${quoteString(iso)}, 9)`;
+    return `start_time > ${quoteString(isoToLocalDisplay(relativeRangeToIso(row.relativeRange)))}`;
   }
   if (row.value === '') return null;
   const iso = datetimeLocalToIso(row.value);
   if (row.operator === 'LIKE') {
     return `toString(start_time) LIKE ${quoteString(iso)}`;
   }
-  return `start_time ${row.operator} parseDateTime64BestEffort(${quoteString(iso)}, 9)`;
+  return `start_time ${row.operator} ${quoteString(isoToLocalDisplay(iso))}`;
 };
 
 export function compileRow(row: BuilderRow): string | null {

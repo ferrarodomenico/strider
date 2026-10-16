@@ -1,4 +1,10 @@
-import { datetimeLocalToIso, relativeRangeToIso, rfc3339ToEpochMs } from './datetime.util';
+import {
+  datetimeLocalToIso,
+  isoToLocalDisplay,
+  localDisplayToIso,
+  relativeRangeToIso,
+  rfc3339ToEpochMs,
+} from './datetime.util';
 
 describe('rfc3339ToEpochMs', () => {
   it('parses a valid RFC3339 string to milliseconds', () => {
@@ -57,5 +63,33 @@ describe('datetimeLocalToIso', () => {
     const iso = datetimeLocalToIso('2024-01-15T10:00');
     expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(iso).toContain('2024');
+  });
+});
+
+describe('isoToLocalDisplay', () => {
+  it('formats an instant as local YYYY-MM-DD HH:MM:SS', () => {
+    const iso = new Date(2024, 0, 15, 9, 5, 7).toISOString();
+    expect(isoToLocalDisplay(iso)).toBe('2024-01-15 09:05:07');
+  });
+});
+
+describe('localDisplayToIso', () => {
+  it('interprets the display string as local time and returns UTC ISO', () => {
+    expect(localDisplayToIso('2024-01-15 09:05:07')).toBe(
+      new Date(2024, 0, 15, 9, 5, 7).toISOString(),
+    );
+  });
+
+  it('accepts a T separator and omitted seconds', () => {
+    expect(localDisplayToIso('2024-01-15T10:00')).toBe(new Date(2024, 0, 15, 10, 0).toISOString());
+  });
+
+  it('round-trips with isoToLocalDisplay', () => {
+    const display = '2026-10-15 10:00:00';
+    expect(isoToLocalDisplay(localDisplayToIso(display))).toBe(display);
+  });
+
+  it('throws RangeError for an invalid date', () => {
+    expect(() => localDisplayToIso('2024-13-45 10:00:00')).toThrow(RangeError);
   });
 });

@@ -5,6 +5,7 @@ import { API_BASE_URL } from '@app/core/config/api.config';
 import { SpanSummary } from '@app/core/models/span-summary.model';
 import { TraceSummary } from '@app/core/models/trace-summary.model';
 import { StreamStatus } from '@app/core/models/view.types';
+import { localDisplayToIso } from '@app/core/util/datetime.util';
 import { ExploreStore } from './explore.store';
 
 function makeMockHandle(
@@ -191,6 +192,17 @@ describe('ExploreStore (AC-1, AC-2, AC-3, AC-4)', () => {
     store.ensureLoaded();
     store.applyFilter();
     expect(mockStream).toHaveBeenCalledTimes(2);
+  });
+
+  it('refresh() sends date literals resolved while compiledCondition stays plain', () => {
+    store.setFilterMode('raw');
+    store.setRawCondition("start_time > '2026-10-15 10:00:00'");
+    store.applyFilter();
+    const lastCall = mockStream.mock.calls[mockStream.mock.calls.length - 1];
+    expect(lastCall[1].condition).toBe(
+      `start_time > parseDateTime64BestEffort('${localDisplayToIso('2026-10-15 10:00:00')}', 9)`,
+    );
+    expect(store.compiledCondition()).toBe("start_time > '2026-10-15 10:00:00'");
   });
 
   // status from handle

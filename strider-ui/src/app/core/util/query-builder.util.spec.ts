@@ -211,65 +211,33 @@ describe('compileRow', () => {
     });
   });
 
-  describe('start_time (time field — ClickHouse parseDateTime64BestEffort)', () => {
+  describe('start_time (time field — plain quoted local date)', () => {
+    const LOCAL_DATE_LITERAL = /'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'/;
+
     it('returns null for relative time with no relativeRange', () => {
       expect(compileRow(row({ field: 'start_time', timeMode: 'relative' }))).toBeNull();
     });
 
-    // Relative preset → parseDateTime64BestEffort, not a bare ISO literal
-    it('compiles relative time using parseDateTime64BestEffort', () => {
+    it('compiles relative time to a plain quoted local date', () => {
       const result = compileRow(
         row({ field: 'start_time', timeMode: 'relative', relativeRange: '1h' }),
       );
-      expect(result).toMatch(/^start_time > parseDateTime64BestEffort\('/);
-      expect(result).toMatch(/, 9\)$/);
+      expect(result).toMatch(new RegExp(`^start_time > ${LOCAL_DATE_LITERAL.source}$`));
+      expect(result).not.toContain('parseDateTime64BestEffort');
     });
 
-    // Comparison operators → parseDateTime64BestEffort
-    it('compiles absolute time < with parseDateTime64BestEffort', () => {
+    it.each(['<', '=', '>'] as const)('compiles absolute time %s to the local date as entered', (operator) => {
       const result = compileRow(
-        row({
-          field: 'start_time',
-          operator: '<',
-          value: '2024-01-15T10:00',
-          timeMode: 'absolute',
-        }),
+        row({ field: 'start_time', operator, value: '2024-01-15T10:00', timeMode: 'absolute' }),
       );
-      expect(result).toMatch(/^start_time < parseDateTime64BestEffort\('/);
-      expect(result).toMatch(/, 9\)$/);
-    });
-
-    it('compiles absolute time = with parseDateTime64BestEffort', () => {
-      const result = compileRow(
-        row({
-          field: 'start_time',
-          operator: '=',
-          value: '2024-01-15T10:00',
-          timeMode: 'absolute',
-        }),
-      );
-      expect(result).toMatch(/^start_time = parseDateTime64BestEffort\('/);
-      expect(result).toMatch(/, 9\)$/);
-    });
-
-    it('compiles absolute time > with parseDateTime64BestEffort', () => {
-      const result = compileRow(
-        row({
-          field: 'start_time',
-          operator: '>',
-          value: '2024-01-15T10:00',
-          timeMode: 'absolute',
-        }),
-      );
-      expect(result).toMatch(/^start_time > parseDateTime64BestEffort\('/);
-      expect(result).toMatch(/, 9\)$/);
+      expect(result).toBe(`start_time ${operator} '2024-01-15 10:00:00'`);
     });
 
     it('returns null for absolute time with empty value', () => {
       expect(compileRow(row({ field: 'start_time', value: '', timeMode: 'absolute' }))).toBeNull();
     });
 
-    // LIKE operator → toString(start_time) LIKE '...' (not parseDateTime64BestEffort)
+    // LIKE operator → toString(start_time) LIKE '...' (unchanged)
     it('LIKE operator emits toString(start_time) LIKE (locked decision)', () => {
       const result = compileRow(
         row({

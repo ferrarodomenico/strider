@@ -19,6 +19,7 @@ const (
 	dbURLVar         = "DB_URL"
 	flushIntervalVar = "FLUSH_INTERVAL"
 	maxBufSizeVar    = "MAX_BUFFER_SIZE"
+	mockDataVar      = "MOCK_DATA"
 )
 
 const (
@@ -54,6 +55,12 @@ func New() (*DB, error) {
 	url := os.Getenv(dbURLVar)
 	if url == "" {
 		return nil, fmt.Errorf("%s env var not set", dbURLVar)
+	}
+
+	mockValue, mockPresent := os.LookupEnv(mockDataVar)
+	seedMock, err := parseMockData(mockValue, mockPresent)
+	if err != nil {
+		return nil, err
 	}
 
 	timeout := defaultTimeout
@@ -105,13 +112,26 @@ func New() (*DB, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
-	if os.Getenv("MOCK_DATA") != "" {
+	if seedMock {
 		if err := d.seedMockData(context.Background()); err != nil {
 			return nil, fmt.Errorf("seed mock data: %w", err)
 		}
 	}
 
 	return d, nil
+}
+
+// parseMockData interprets the MOCK_DATA env var. An unset variable means false;
+// a set variable (even an empty one) must be a value strconv.ParseBool accepts.
+func parseMockData(value string, present bool) (bool, error) {
+	if !present {
+		return false, nil
+	}
+	seed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("invalid %s %q: %w", mockDataVar, value, err)
+	}
+	return seed, nil
 }
 
 func (d *DB) Close() error {
@@ -239,6 +259,46 @@ func (d *DB) saveSpans(ctx context.Context, spans []traces.Span) error {
 	}
 
 	return batch.Send()
+}
+
+func (d *DB) CountByInterval(ctx context.Context, interval time.Duration, start time.Time, end time.Time) (traces.TracesOverInterval, error) {
+	const query = `
+		SELECT
+			toStartOfInterval(@start, INTERVAL @interval) as date,
+			count() AS traffic
+		FROM trace_summary
+		WHERE start_time >= @start
+		AND   start_time <= @end
+		GROUP BY date
+		ORDER BY date ASC
+		WITH FILL STEP INTERVAL @interval
+	`
+	rows, err := d.conn.Query(ctx, query,
+		clickhouse.Named("start", start),
+		clickhouse.Named("end", end),
+		clickhouse.Named("interval", interval),
+	)
+	if err != nil {
+		return traces.TracesOverInterval{}, err
+	}
+	defer rows.Close()
+
+	var result traces.TracesOverInterval
+	for rows.Next() {
+		var date time.Time
+		var count uint64
+		if err := rows.Scan(&date, &count); err != nil {
+			return traces.TracesOverInterval{}, fmt.Errorf("scan: %w", err)
+		}
+		result.Date = date
+		result.Count = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return traces.TracesOverInterval{}, fmt.Errorf("rows: %w", err)
+	}
+
+	return result, nil
 }
 
 // findAll streams rows of T from the query built by buildListQuery. Iteration stops
