@@ -7,6 +7,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Stats tab** — a third Explore tab next to Traces and Spans shows a lazy-loaded Chart.js line chart of trace counts over time, from `GET /traces/count`. Controls: interval (number plus minute, hour, or day unit), optional start and end, and Apply. Inline validation and loading, empty, and error states. The view mode is stored in the `?mode=traces|spans|stats` URL parameter, and the trace-detail Back link keeps the mode. New dependency: `chart.js` ^4.
+- Known follow-ups: consolidate the duplicated HTTP error util and styles.
+
+---
+
 ## [0.2.0] — 2026-10-08
 
 ### Added

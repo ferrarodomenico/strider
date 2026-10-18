@@ -2,14 +2,14 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { DurationPipe } from '@app/core/pipes/duration.pipe';
 import { LocalDateTimePipe } from '@app/core/pipes/local-datetime.pipe';
 import { SpanKindPipe } from '@app/core/pipes/span-kind.pipe';
-import { StatusCodePipe } from '@app/core/pipes/status-code.pipe';
+import { StatusBadge } from '@app/shared/ui/status-badge';
 import { Span } from '@app/core/models/span.model';
 
 @Component({
   selector: 'app-span-detail-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DurationPipe, LocalDateTimePipe, SpanKindPipe, StatusCodePipe],
+  imports: [DurationPipe, LocalDateTimePipe, SpanKindPipe, StatusBadge],
   template: `
     @if (span()) {
       <div class="panel">
@@ -49,7 +49,7 @@ import { Span } from '@app/core/models/span.model';
           </div>
           <div class="field">
             <dt>Status</dt>
-            <dd>{{ span()!.statusCode | statusCode }}</dd>
+            <dd><app-status-badge [code]="span()!.statusCode" /></dd>
           </div>
           @if (span()!.statusMessage) {
             <div class="field">

@@ -3,7 +3,7 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
 import { DurationPipe } from '@app/core/pipes/duration.pipe';
 import { LocalDateTimePipe } from '@app/core/pipes/local-datetime.pipe';
 import { SpanKindPipe } from '@app/core/pipes/span-kind.pipe';
-import { StatusCodePipe } from '@app/core/pipes/status-code.pipe';
+import { StatusBadge } from '@app/shared/ui/status-badge';
 import { SpanSummary } from '@app/core/models/span-summary.model';
 import { TraceSummary } from '@app/core/models/trace-summary.model';
 import { ViewMode } from '@app/core/models/view.types';
@@ -18,7 +18,7 @@ export interface RowClickEvent {
   selector: 'app-results-list',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ScrollingModule, DurationPipe, LocalDateTimePipe, SpanKindPipe, StatusCodePipe],
+  imports: [ScrollingModule, DurationPipe, LocalDateTimePipe, SpanKindPipe, StatusBadge],
   template: `
     <div class="table-scroll">
       @switch (mode()) {
@@ -87,7 +87,7 @@ export interface RowClickEvent {
                 <span class="cell cell--narrow">{{ row.kind | spanKind }}</span>
                 <span class="cell">{{ row.startTime | localDateTime }}</span>
                 <span class="cell mono">{{ row.durationNs | duration }}</span>
-                <span class="cell cell--narrow">{{ row.statusCode | statusCode }}</span>
+                <span class="cell cell--narrow"><app-status-badge [code]="row.statusCode" /></span>
               </button>
             </cdk-virtual-scroll-viewport>
           </div>
@@ -194,6 +194,10 @@ export interface RowClickEvent {
 
       .cell--narrow {
         flex-shrink: 0;
+      }
+
+      app-status-badge {
+        display: block;
       }
     `,
   ],

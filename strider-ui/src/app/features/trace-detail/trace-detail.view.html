@@ -12,7 +12,7 @@
       <app-state-message variant="error" [message]="store.error()!" />
     }
     @case ('loaded') {
-      <app-trace-header [trace]="store.trace()!" />
+      <app-trace-header [trace]="store.trace()!" [backQueryParams]="backQueryParams()" />
       <div class="body">
         <div class="waterfall-col">
           <app-waterfall

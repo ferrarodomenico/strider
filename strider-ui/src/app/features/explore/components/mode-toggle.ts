@@ -1,5 +1,12 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { ViewMode } from '@app/core/models/view.types';
+import { VIEW_MODES } from '@app/core/util/view-mode.util';
+
+const MODE_LABELS: Record<ViewMode, string> = {
+  traces: 'Traces',
+  spans: 'Spans',
+  stats: 'Traffic',
+};
 
 @Component({
   selector: 'app-mode-toggle',
@@ -7,22 +14,16 @@ import { ViewMode } from '@app/core/models/view.types';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="toggle" role="tablist" aria-label="View mode">
-      <button
-        role="tab"
-        [attr.aria-selected]="mode() === 'traces'"
-        [class.active]="mode() === 'traces'"
-        (click)="modeChange.emit('traces')"
-      >
-        Traces
-      </button>
-      <button
-        role="tab"
-        [attr.aria-selected]="mode() === 'spans'"
-        [class.active]="mode() === 'spans'"
-        (click)="modeChange.emit('spans')"
-      >
-        Spans
-      </button>
+      @for (m of modes; track m) {
+        <button
+          role="tab"
+          [attr.aria-selected]="mode() === m"
+          [class.active]="mode() === m"
+          (click)="modeChange.emit(m)"
+        >
+          {{ label(m) }}
+        </button>
+      }
     </div>
   `,
   styles: [
@@ -63,4 +64,10 @@ import { ViewMode } from '@app/core/models/view.types';
 export class ModeToggle {
   readonly mode = input.required<ViewMode>();
   readonly modeChange = output<ViewMode>();
+
+  protected readonly modes = VIEW_MODES;
+
+  protected label(m: ViewMode): string {
+    return MODE_LABELS[m];
+  }
 }

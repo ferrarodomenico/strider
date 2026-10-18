@@ -1,4 +1,5 @@
 import { API_PATHS } from '@app/core/config/api.config';
+import { IntervalRangeQuery } from '@app/core/models/interval-range.model';
 import { Direction, OrderByField } from '@app/core/models/view.types';
 
 export interface ListQuery {
@@ -17,3 +18,11 @@ export function buildListUrl(baseUrl: string, path: string, q: ListQuery): strin
 
 export const buildTraceDetailUrl = (baseUrl: string, id: string): string =>
   `${baseUrl}${API_PATHS.traceDetail(id)}`;
+
+export function buildTraceCountUrl(baseUrl: string, q: IntervalRangeQuery): string {
+  const params = new URLSearchParams();
+  params.set('interval', q.interval);
+  if (q.start !== null) params.set('start', q.start);
+  if (q.end !== null) params.set('end', q.end);
+  return `${baseUrl}${API_PATHS.traceCount}?${params.toString()}`;
+}

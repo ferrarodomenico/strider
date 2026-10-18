@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { DurationPipe } from '@app/core/pipes/duration.pipe';
-import { StatusCodePipe } from '@app/core/pipes/status-code.pipe';
+import { StatusBadge } from '@app/shared/ui/status-badge';
 import { WaterfallRow } from '@app/core/models/trace-detail.model';
 import { MIN_BAR_WIDTH_PX } from '@app/core/config/api.config';
 
@@ -11,7 +11,7 @@ const CLAMP_MAX = 1;
   selector: 'app-waterfall-row',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DurationPipe, StatusCodePipe],
+  imports: [DurationPipe, StatusBadge],
   host: { '[class.selected]': 'selected()', style: 'display: contents' },
   template: `
     <!-- Tree cell -->
@@ -42,9 +42,8 @@ const CLAMP_MAX = 1;
       }
       <span class="service-name">{{ row().span.serviceName }}</span>
       <span class="span-name">{{ row().span.name }}</span>
-      <span class="span-meta mono">
-        {{ row().span.durationNs | duration }} · {{ row().span.statusCode | statusCode }}
-      </span>
+      <span class="span-meta mono">{{ row().span.durationNs | duration }}</span>
+      <app-status-badge [code]="row().span.statusCode" />
     </div>
 
     <!-- Bar cell -->

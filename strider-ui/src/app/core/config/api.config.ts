@@ -7,6 +7,7 @@ export const API_PATHS = {
   traces: '/traces',
   spans: '/spans',
   traceDetail: (id: string) => `/traces/${encodeURIComponent(id)}`,
+  traceCount: '/traces/count',
 } as const;
 
 export const STREAM_ROW_CAP = 10_000;

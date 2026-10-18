@@ -14,12 +14,13 @@ import {
 } from '@app/core/models/view.types';
 import { resolveDateLiterals } from '@app/core/util/date-literal.util';
 import { compileCondition } from '@app/core/util/query-builder.util';
+import { DEFAULT_VIEW_MODE, isListMode } from '@app/core/util/view-mode.util';
 
 @Injectable({ providedIn: 'root' })
 export class ExploreStore {
   private readonly streamService = inject(NdjsonStreamService);
 
-  readonly mode = signal<ViewMode>('traces');
+  readonly mode = signal<ViewMode>(DEFAULT_VIEW_MODE);
   readonly orderBy = signal<OrderByField>('start_time');
   readonly direction = signal<Direction>('DESC');
   readonly filterMode = signal<FilterMode>('builder');
@@ -28,6 +29,8 @@ export class ExploreStore {
 
   private readonly handle = signal<StreamHandle<TraceSummary | SpanSummary> | null>(null);
   private readonly hasLoaded = signal(false);
+
+  readonly isListView = computed(() => isListMode(this.mode()));
 
   readonly compiledCondition = computed(() =>
     this.filterMode() === 'raw' ? this.rawCondition() : compileCondition(this.builderRows()),
@@ -59,12 +62,23 @@ export class ExploreStore {
   readonly hasFilter = computed(() => this.compiledCondition().trim().length > 0);
 
   ensureLoaded(): void {
-    if (!this.hasLoaded()) this.refresh();
+    if (this.hasLoaded() || !this.isListView()) return;
+    this.refresh();
+  }
+
+  /** Applies a mode coming from the URL and loads it when it is a list mode. */
+  activateMode(m: ViewMode): void {
+    this.setMode(m);
+    this.ensureLoaded();
   }
 
   setMode(m: ViewMode): void {
     if (m === this.mode()) return;
     this.mode.set(m);
+    if (!isListMode(m)) {
+      this.cancel();
+      return;
+    }
     if (this.orderBy() === 'span_count' && m === 'spans') {
       this.orderBy.set('start_time');
     }
@@ -107,6 +121,7 @@ export class ExploreStore {
   }
 
   private refresh(): void {
+    if (!this.isListView()) return;
     this.handle()?.cancel();
 
     const path = this.mode() === 'traces' ? API_PATHS.traces : API_PATHS.spans;

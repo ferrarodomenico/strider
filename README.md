@@ -103,6 +103,42 @@ Returns all trace summaries as NDJSON (`Content-Type: application/x-ndjson`). Ea
 {"trace_id":"def456","root_name":"POST /order","service_name":"checkout","start_time":"2026-10-04T12:00:01Z","duration_ns":800000,"span_count":2}
 ```
 
+### GET /traces/count
+
+Returns the number of traces per time bucket as a JSON array, in ascending bucket order.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `interval` | Go duration (`30m`, `1h`, `24h`) | `1h` | Bucket width. Minimum `1s`; truncated to whole seconds. |
+| `start` | RFC3339 | now minus 1 year | Inclusive lower bound on trace start time. |
+| `end` | RFC3339 | now | Inclusive upper bound on trace start time. |
+
+**Response fields (one object per bucket):**
+
+| JSON key | Type | Description |
+|---|---|---|
+| `start_time` | string (RFC3339, UTC) | Start of the bucket |
+| `count` | number | Traces that started in the bucket |
+
+**Behavior:**
+
+- Each trace counts once, at its root span's start time. Traces without a root span are not counted.
+- Buckets are UTC and aligned to multiples of `interval` since the Unix epoch, not to `start`.
+- Buckets with no traces are zero-filled only between the first and last bucket that contain data. No bucket appears before the first or after the last data bucket.
+- HTTP 200 + `[]` when no trace matches.
+- HTTP 400 when `start`, `end`, or `interval` is unparsable, `interval` is under `1s`, or `start` is not before `end`.
+- HTTP 500 when the query fails.
+
+**Example:**
+
+```
+GET /traces/count?interval=1h&start=2026-10-16T00:00:00Z&end=2026-10-16T03:00:00Z
+
+[{"start_time":"2026-10-16T00:00:00Z","count":4},{"start_time":"2026-10-16T01:00:00Z","count":0},{"start_time":"2026-10-16T02:00:00Z","count":7}]
+```
+
 ### GET /traces/{id}
 
 Returns the full trace for the given `trace_id` as JSON. Returns HTTP 404 when no trace matches.

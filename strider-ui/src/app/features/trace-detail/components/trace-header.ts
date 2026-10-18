@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Params, RouterLink } from '@angular/router';
 import { DurationPipe } from '@app/core/pipes/duration.pipe';
 import { LocalDateTimePipe } from '@app/core/pipes/local-datetime.pipe';
 import { TraceDetail } from '@app/core/models/trace-detail.model';
@@ -12,7 +12,7 @@ import { TraceDetail } from '@app/core/models/trace-detail.model';
   template: `
     <header class="trace-header">
       <div class="trace-title">
-        <a class="back-btn" routerLink="/" aria-label="Back to results">
+        <a class="back-btn" routerLink="/" [queryParams]="backQueryParams()" aria-label="Back to results">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="16"
@@ -135,4 +135,5 @@ import { TraceDetail } from '@app/core/models/trace-detail.model';
 })
 export class TraceHeader {
   readonly trace = input.required<TraceDetail>();
+  readonly backQueryParams = input<Params | null>(null);
 }

@@ -46,3 +46,8 @@ export interface RawTraceDetail {
   DurationNs: number;
   Roots: RawSpanNode[] | null;
 }
+
+export interface RawTraceCountBucket {
+  start_time: string;
+  count: number;
+}

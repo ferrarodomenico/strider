@@ -261,44 +261,67 @@ func (d *DB) saveSpans(ctx context.Context, spans []traces.Span) error {
 	return batch.Send()
 }
 
-func (d *DB) CountByInterval(ctx context.Context, interval time.Duration, start time.Time, end time.Time) (traces.TracesOverInterval, error) {
-	const query = `
-		SELECT
-			toStartOfInterval(@start, INTERVAL @interval) as date,
-			count() AS traffic
+// countBucketsSQL counts traces per UTC bucket of @interval_s seconds.
+//
+// The inner query yields one row per trace with its earliest known root start, limited to
+// [@start, @end]. trace_summary_mv writes one row per INSERT block, so a trace whose spans
+// arrived in several inserts has several rows; a block without the root span carries the
+// zero start_time (anyIf default). GROUP BY trace_id dedupes and the epoch filter drops
+// root-less rows. FINAL is deliberately not used: it keeps only the last-inserted row,
+// which may be root-less. Consequence: a trace whose root span never reached trace_summary
+// is not counted.
+//
+// INTERVAL n SECOND in UTC is aligned to multiples of n since the Unix epoch (1h -> :00,
+// 24h -> UTC midnight), so the fill STEP lands on bucket starts. WITH FILL deliberately
+// has no FROM/TO: only the gaps between the first and last non-empty bucket are filled,
+// and no rows in means no rows out.
+const countBucketsSQL = `
+	SELECT
+		toStartOfInterval(toDateTime(trace_start, 'UTC'), INTERVAL @interval_s SECOND, 'UTC') AS bucket_start,
+		count() AS trace_count
+	FROM (
+		SELECT trace_id, min(start_time) AS trace_start
 		FROM trace_summary
-		WHERE start_time >= @start
-		AND   start_time <= @end
-		GROUP BY date
-		ORDER BY date ASC
-		WITH FILL STEP INTERVAL @interval
-	`
-	rows, err := d.conn.Query(ctx, query,
-		clickhouse.Named("start", start),
-		clickhouse.Named("end", end),
-		clickhouse.Named("interval", interval),
+		WHERE start_time > toDateTime64(0, 9, 'UTC')
+		  AND start_time >= @start
+		  AND start_time <= @end
+		GROUP BY trace_id
+	)
+	GROUP BY bucket_start
+	ORDER BY bucket_start ASC
+	WITH FILL STEP INTERVAL @interval_s SECOND`
+
+// CountByInterval returns trace counts per bucket, in ascending order.
+//
+// Only traces whose start is in [start, end] (inclusive) are counted. Empty buckets between
+// the first and the last bucket that contain data are zero-filled. No bucket is returned
+// before the first or after the last bucket that contains data, whatever start and end are.
+//
+// Buckets are UTC and aligned to trace start times (multiples of the interval since the Unix
+// epoch), not to start. Each trace counts once, at its root span's start time. A trace with
+// no root span in trace_summary has no known start, so it is not counted.
+//
+// It returns an empty, non-nil slice when no trace matches.
+//
+// Preconditions, both enforced by the caller: interval >= time.Second (a sub-second
+// remainder is truncated), and start is before end.
+func (d *DB) CountByInterval(ctx context.Context, interval time.Duration, start, end time.Time) ([]traces.TracesOverInterval, error) {
+	buckets := []traces.TracesOverInterval{}
+	err := d.conn.Select(ctx, &buckets, countBucketsSQL,
+		clickhouse.Named("interval_s", intervalSeconds(interval)),
+		clickhouse.DateNamed("start", start.UTC(), clickhouse.NanoSeconds),
+		clickhouse.DateNamed("end", end.UTC(), clickhouse.NanoSeconds),
 	)
 	if err != nil {
-		return traces.TracesOverInterval{}, err
-	}
-	defer rows.Close()
-
-	var result traces.TracesOverInterval
-	for rows.Next() {
-		var date time.Time
-		var count uint64
-		if err := rows.Scan(&date, &count); err != nil {
-			return traces.TracesOverInterval{}, fmt.Errorf("scan: %w", err)
-		}
-		result.Date = date
-		result.Count = count
+		return nil, fmt.Errorf("count by interval: %w", err)
 	}
 
-	if err := rows.Err(); err != nil {
-		return traces.TracesOverInterval{}, fmt.Errorf("rows: %w", err)
-	}
+	return buckets, nil
+}
 
-	return result, nil
+// intervalSeconds converts a duration to whole seconds for INTERVAL n SECOND (truncates).
+func intervalSeconds(interval time.Duration) int64 {
+	return int64(interval / time.Second)
 }
 
 // findAll streams rows of T from the query built by buildListQuery. Iteration stops

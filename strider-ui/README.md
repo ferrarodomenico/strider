@@ -8,7 +8,8 @@ An Angular 22 frontend for the [Strider](https://github.com/domenico.a.ferraro/s
 
 ### Explore view (landing page)
 
-- **Mode toggle** — switch between Traces and Spans; each mode has its own column set and re-issues the backend request.
+- **Mode toggle** — switch between Traces, Spans, and Stats; Traces and Spans have their own column set and re-issue the backend request. The mode is stored in the `?mode=traces|spans|stats` URL parameter.
+- **Stats tab** — a lazy-loaded [Chart.js](https://www.chartjs.org/) line chart of trace counts over time, from `GET /traces/count`. Controls: interval (number plus minute, hour, or day unit; default 1 hour), optional start and end (defaults: 1 year ago and now), and Apply. Invalid input shows an inline validation message and sends no request. The tab has loading, empty, and error states.
 - **Sort** — choose any sortable field and toggle ASC / DESC direction.
 - **Dual-mode filtering**
   - Raw condition: type a SQL WHERE fragment directly (e.g. `service_name = 'api-gateway'`).
@@ -27,7 +28,7 @@ An Angular 22 frontend for the [Strider](https://github.com/domenico.a.ferraro/s
 - **Span tree** — spans are displayed in parent → child hierarchy; forest topologies (multiple roots) and orphan spans are both handled correctly.
 - **Expand / collapse** — individual subtrees can be opened or closed.
 - **Span-detail panel** — clicking a span opens a side panel showing all span attributes and resource attributes.
-- **Back button** — returns to the results list with mode, sort, filter, and loaded rows preserved.
+- **Back button** — returns to the results list with mode (including Stats), sort, filter, and loaded rows preserved.
 - **Deep-link highlight** — navigating from the explore view (clicking a span row) passes the `span_id` as a query param; the target span is automatically selected and scrolled into view.
 
 ### Design system
@@ -60,6 +61,7 @@ The UI consumes a Go HTTP service. Run it on `http://localhost:8080`.
 | `/traces` | GET | NDJSON stream | Params: `orderBy`, `direction`, `condition` |
 | `/spans` | GET | NDJSON stream | Params: `orderBy`, `direction`, `condition` |
 | `/traces/{id}` | GET | Single JSON object | Full trace forest, not streamed |
+| `/traces/count` | GET | JSON array of `{start_time, count}` | Params: `interval` (Go duration, min `1s`), `start`, `end` (RFC3339). Used by the Stats tab. See the [backend README](../README.md#get-tracescount) |
 
 - `orderBy`: `start_time`, `duration_ns`, `span_count` (`span_count` is traces-only).
 - `direction`: `ASC` or `DESC` (backend default: `DESC`).
@@ -130,5 +132,7 @@ The following items were accepted as deferred tech debt after QA and are recorde
 
 1. **Reactive-contract smell in `ndjson-stream.service.ts`** — the service mutates signals and calls `AbortController.abort()` inside a `_rows.update()` callback. This works but violates the expected contract that `update()` callbacks are pure.
 2. **Duplicated row-cap logic in `ndjson-stream.service.ts`** — the 10,000-row cap check is repeated across the batch path and the trailing-line path. Both enforce the same constant (`STREAM_ROW_CAP`) but the logic is not shared.
+
+3. **Duplicated HTTP error util and styles in the Stats tab** — `features/explore/stats/stats-http-error.util.ts` and the Stats stylesheets repeat logic and styles that exist elsewhere in the app. Consolidation is deferred.
 
 Additionally, the raw manual-condition filter passes the user's input directly to the backend as a SQL WHERE fragment. This is intentional for the local, auth-free deployment context. Any multi-user or public deployment must add server-side sanitisation before that parameter reaches the database.

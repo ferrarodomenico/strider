@@ -1,0 +1,94 @@
+.interval-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--fs-sm);
+  color: var(--color-dim);
+}
+
+// Same control look as sort-controls select / query-builder-row inputs (copied; see plan follow-ups).
+input,
+select {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--color-text);
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+.interval-value {
+  width: 5rem;
+}
+
+// Same as query-builder-row .remove-btn.
+.clear-btn {
+  color: var(--color-dim);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--color-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+// Same as filter-panel .apply-btn, plus a disabled state (Apply is blocked on invalid input).
+.apply-btn {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--motion-fast) var(--ease-out);
+
+  &:hover:not(:disabled) {
+    opacity: 0.85;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+.errors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+// Same as stream-status-bar .error-msg (same visual pattern as existing error feedback).
+.error-msg {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}

@@ -77,8 +77,8 @@ type SpanSummary struct {
 }
 
 type TracesOverInterval struct {
-	Date  time.Time `json:"start_time"`
-	Count uint64    `json:"count"`
+	Date  time.Time `json:"start_time" ch:"bucket_start"`
+	Count uint64    `json:"count" ch:"trace_count"`
 }
 
 func NewSpan(span *tracepb.Span, serviceName string, resourceAttrs map[string]string) Span {

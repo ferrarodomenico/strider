@@ -1,4 +1,7 @@
-export type ViewMode = 'traces' | 'spans';
+export type ListMode = 'traces' | 'spans';
+export type ViewMode = ListMode | 'stats';
+export type IntervalUnit = 'minute' | 'hour' | 'day';
+export type LoadStatus = 'idle' | 'loading' | 'loaded' | 'error';
 export type Direction = 'ASC' | 'DESC';
 export type OrderByField = 'start_time' | 'duration_ns' | 'span_count';
 export type FilterMode = 'raw' | 'builder';
