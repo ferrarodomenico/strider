@@ -1,12 +1,14 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   effect,
   inject,
   input,
   untracked,
 } from '@angular/core';
 import { ActivatedRoute, Params, Router } from '@angular/router';
+import { RESULT_LIMIT_OPTIONS } from '@app/core/config/api.config';
 import { ViewMode } from '@app/core/models/view.types';
 import { MODE_QUERY_PARAM, parseViewMode } from '@app/core/util/view-mode.util';
 import { StateMessage } from '@app/shared/ui/state-message';
@@ -44,12 +46,21 @@ export class ExploreView {
   readonly modeParam = input<string | undefined>(undefined, { alias: 'mode' });
 
   protected readonly statsLoadError = 'Could not load the stats view.';
+  protected readonly limitOptions = RESULT_LIMIT_OPTIONS;
 
   constructor() {
     effect(() => {
       const mode = parseViewMode(this.modeParam());
       untracked(() => this.store.activateMode(mode));
     });
+
+    // Live updates only run while this view is shown; the checkbox state survives in the store.
+    this.store.connectLive();
+    inject(DestroyRef).onDestroy(() => this.store.detachLive());
+  }
+
+  protected onLiveToggle(ev: Event): void {
+    this.store.setLiveEnabled((ev.target as HTMLInputElement).checked);
   }
 
   protected onModeChange(mode: ViewMode): void {

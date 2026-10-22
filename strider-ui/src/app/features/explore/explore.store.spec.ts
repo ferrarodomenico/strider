@@ -15,7 +15,6 @@ function makeMockHandle(
     rows: signal<readonly (TraceSummary | SpanSummary)[]>([]).asReadonly(),
     status: signal<StreamStatus>(status).asReadonly(),
     error: signal<string | null>(null).asReadonly(),
-    capReached: signal(false).asReadonly(),
     cancel: vi.fn(),
   };
 }
@@ -115,6 +114,58 @@ describe('ExploreStore (AC-1, AC-2, AC-3, AC-4)', () => {
     expect(store.orderBy()).toBe('start_time');
   });
 
+  it('builderFields follows the mode', () => {
+    expect(store.builderFields().map((d) => d.field)).toContain('span_count');
+    expect(store.builderFields().map((d) => d.field)).not.toContain('kind');
+    store.setMode('spans');
+    expect(store.builderFields().map((d) => d.field)).toContain('kind');
+    expect(store.builderFields().map((d) => d.field)).not.toContain('span_count');
+  });
+
+  it('keeps a separate builder query per mode and restores it on switch', () => {
+    store.setBuilderRows([{ id: 't1', field: 'span_count', operator: '>', value: '3' }]);
+    store.setMode('spans');
+    expect(store.builderRows()).toHaveLength(0);
+
+    store.setBuilderRows([{ id: 's1', field: 'kind', operator: '=', value: '2' }]);
+    store.setMode('traces');
+    expect(store.builderRows().map((r) => r.id)).toEqual(['t1']);
+    expect(store.compiledCondition()).toBe('span_count > 3');
+
+    store.setMode('spans');
+    expect(store.builderRows().map((r) => r.id)).toEqual(['s1']);
+    expect(store.compiledCondition()).toBe('kind = 2');
+  });
+
+  it('keeps raw/builder filter mode and raw text per mode', () => {
+    store.setFilterMode('raw');
+    store.setRawCondition('span_count > 10');
+    store.setMode('spans');
+    expect(store.filterMode()).toBe('builder');
+    expect(store.rawCondition()).toBe('');
+
+    store.setMode('traces');
+    expect(store.filterMode()).toBe('raw');
+    expect(store.rawCondition()).toBe('span_count > 10');
+  });
+
+  it('preserves the list-mode query across a visit to stats', () => {
+    store.setMode('spans');
+    store.setBuilderRows([{ id: 's1', field: 'name', operator: '=', value: 'GET' }]);
+    store.setMode('stats');
+    store.setMode('spans');
+    expect(store.builderRows().map((r) => r.id)).toEqual(['s1']);
+  });
+
+  it('sends the current mode query on switch', () => {
+    store.ensureLoaded();
+    store.setBuilderRows([{ id: 't1', field: 'root_name', operator: '=', value: 'GET /' }]);
+    store.setMode('spans');
+    expect(mockStream.mock.calls[mockStream.mock.calls.length - 1][1].condition).toBe('');
+    store.setMode('traces');
+    expect(mockStream.mock.calls[mockStream.mock.calls.length - 1][1].condition).toBe("root_name = 'GET /'");
+  });
+
   // AC-2 #7: setOrderBy triggers new request with correct orderBy
   it('setOrderBy() passes new field to stream (AC-2 #7)', () => {
     store.ensureLoaded();
@@ -130,6 +181,24 @@ describe('ExploreStore (AC-1, AC-2, AC-3, AC-4)', () => {
     const lastCall = mockStream.mock.calls[mockStream.mock.calls.length - 1];
     expect(lastCall[1].direction).toBe('ASC');
     expect(store.direction()).toBe('ASC');
+  });
+
+  it('has default limit None', () => {
+    expect(store.limit()).toBeNull();
+  });
+
+  it('passes the default None limit to the stream', () => {
+    store.ensureLoaded();
+    expect(mockStream.mock.calls[0][1].limit).toBeNull();
+  });
+
+  it('setLimit() passes new limit to stream', () => {
+    store.ensureLoaded();
+    store.setLimit(100);
+    const lastCall = mockStream.mock.calls[mockStream.mock.calls.length - 1];
+    expect(mockStream).toHaveBeenCalledTimes(2);
+    expect(lastCall[1].limit).toBe(100);
+    expect(store.limit()).toBe(100);
   });
 
   // AC-4 #23: switching from builder to raw copies compiled condition

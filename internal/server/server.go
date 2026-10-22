@@ -80,6 +80,7 @@ func StartHTTP(database *db.DB, addr string) (string, func(), error) {
 	mux.HandleFunc("GET /traces/{id}", handleFindTraceById(database))
 	mux.HandleFunc("GET /spans", handleFindAll(database, kindSpans))
 	mux.HandleFunc("GET /traces/count", handleCountTracesOverInterval(database))
+	mux.HandleFunc("GET /live-updates", handleLiveUpdates(database))
 
 	srv := &http.Server{Handler: mux}
 

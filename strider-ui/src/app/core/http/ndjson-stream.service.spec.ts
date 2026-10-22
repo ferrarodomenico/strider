@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
-import { API_BASE_URL, STREAM_ROW_CAP } from '@app/core/config/api.config';
+import { API_BASE_URL } from '@app/core/config/api.config';
 import { NdjsonStreamService } from './ndjson-stream.service';
 
 // Helper: build a ReadableStream from NDJSON text lines
@@ -34,7 +34,7 @@ function mockFetch(ok: boolean, stream: ReadableStream<Uint8Array> | null, statu
   );
 }
 
-const baseQuery = { orderBy: 'start_time' as const, direction: 'DESC' as const, condition: '' };
+const baseQuery = { orderBy: 'start_time' as const, direction: 'DESC' as const, condition: '', limit: null };
 const identity = (raw: unknown) => raw;
 
 describe('NdjsonStreamService (AC-5)', () => {
@@ -128,21 +128,15 @@ describe('NdjsonStreamService (AC-5)', () => {
     await flushPromises();
 
     expect(handle.status()).toBe('done');
-    // capReached should not be set; cancel was user-initiated
-    expect(handle.capReached()).toBe(false);
   });
 
-  // AC-5 #32: row cap at STREAM_ROW_CAP
-  it('stops appending rows and sets capReached when cap is hit (AC-5 #32)', async () => {
-    // Create STREAM_ROW_CAP + 1 rows in one chunk
-    const lines = Array.from({ length: STREAM_ROW_CAP + 1 }, (_, i) =>
-      JSON.stringify({ id: i }),
-    );
+  // The server-side limit is the only cap: the client keeps every streamed row.
+  it('keeps all rows beyond the former 10,000 client cap', async () => {
+    const lines = Array.from({ length: 10_001 }, (_, i) => JSON.stringify({ id: i }));
     mockFetch(true, makeNdjsonStream(lines));
     const handle = service.stream('/traces', baseQuery, identity);
     await flushPromises();
-    expect(handle.rows().length).toBe(STREAM_ROW_CAP);
-    expect(handle.capReached()).toBe(true);
+    expect(handle.rows().length).toBe(10_001);
     expect(handle.status()).toBe('done');
   });
 
@@ -156,13 +150,6 @@ describe('NdjsonStreamService (AC-5)', () => {
     service.stream('/traces', baseQuery, identity);
     await flushPromises();
     expect(capturedUrl).not.toContain('4317');
-  });
-
-  // AC-5 #32: capReached starts false
-  it('capReached starts as false', () => {
-    mockFetch(true, makeNdjsonStream([]));
-    const handle = service.stream('/traces', baseQuery, identity);
-    expect(handle.capReached()).toBe(false);
   });
 
   // error starts null

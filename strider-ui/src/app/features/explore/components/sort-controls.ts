@@ -1,11 +1,13 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { Direction, OrderByField } from '@app/core/models/view.types';
+import { Direction, OrderByField, ResultLimit } from '@app/core/models/view.types';
 
 const FIELD_LABELS: Record<OrderByField, string> = {
   start_time: 'Start Time',
   duration_ns: 'Duration',
   span_count: 'Span Count',
 };
+
+const NO_LIMIT_VALUE = 'none';
 
 @Component({
   selector: 'app-sort-controls',
@@ -33,6 +35,17 @@ const FIELD_LABELS: Record<OrderByField, string> = {
         {{ direction() === 'ASC' ? '▲' : '▼' }}
         <span class="sr-only">{{ direction() }}</span>
       </button>
+      <label class="label" for="result-limit">Limit</label>
+      <select
+        id="result-limit"
+        [value]="limitValue(limit())"
+        (change)="onLimitChange($event)"
+        aria-label="Result limit"
+      >
+        @for (opt of limits(); track opt) {
+          <option [value]="limitValue(opt)" [selected]="opt === limit()">{{ limitLabel(opt) }}</option>
+        }
+      </select>
     </div>
   `,
   styles: [
@@ -87,8 +100,11 @@ export class SortControls {
   readonly fields = input.required<OrderByField[]>();
   readonly orderBy = input.required<OrderByField>();
   readonly direction = input.required<Direction>();
+  readonly limits = input.required<readonly ResultLimit[]>();
+  readonly limit = input.required<ResultLimit>();
   readonly orderByChange = output<OrderByField>();
   readonly directionChange = output<Direction>();
+  readonly limitChange = output<ResultLimit>();
 
   protected fieldLabel(field: OrderByField): string {
     return FIELD_LABELS[field];
@@ -101,5 +117,18 @@ export class SortControls {
 
   protected onDirectionToggle(): void {
     this.directionChange.emit(this.direction() === 'ASC' ? 'DESC' : 'ASC');
+  }
+
+  protected limitValue(l: ResultLimit): string {
+    return l === null ? NO_LIMIT_VALUE : String(l);
+  }
+
+  protected limitLabel(l: ResultLimit): string {
+    return l === null ? 'None' : l.toLocaleString('en-US');
+  }
+
+  protected onLimitChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.limitChange.emit(value === NO_LIMIT_VALUE ? null : (Number(value) as ResultLimit));
   }
 }

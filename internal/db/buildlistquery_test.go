@@ -83,10 +83,10 @@ func TestBuildListQuery(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := d.buildListQuery(tc.prefix, tc.orderBy, tc.direction, tc.condition)
+			got := d.buildListQuery(tc.prefix, tc.orderBy, tc.direction, tc.condition, 100)
 			if got != tc.want {
-				t.Errorf("buildListQuery(%q, %q, %q, %q)\n got  %q\n want %q",
-					tc.prefix, tc.orderBy, tc.direction, tc.condition, got, tc.want)
+				t.Errorf("buildListQuery(%q, %q, %q, %q, %d)\n got  %q\n want %q",
+					tc.prefix, tc.orderBy, tc.direction, tc.condition, 100, got, tc.want)
 			}
 		})
 	}

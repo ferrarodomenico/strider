@@ -1,5 +1,5 @@
 import { BuilderRow, FieldDef } from '@app/core/models/builder-row.model';
-import { BuilderField, Operator } from '@app/core/models/view.types';
+import { BuilderField, ListMode, Operator } from '@app/core/models/view.types';
 import { datetimeLocalToIso, isoToLocalDisplay, relativeRangeToIso } from './datetime.util';
 
 // Operator groups reused per field type
@@ -11,13 +11,35 @@ const TIME_OPERATORS: Operator[] = ['=', '!=', '<', '>', 'LIKE'];
 
 const MS_TO_NS = 1_000_000;
 
+// Full catalogue of builder fields; each list mode exposes a subset (see fieldDefsFor).
 export const FIELD_DEFS: FieldDef[] = [
   { field: 'service_name', label: 'Service Name', valueInput: 'text', operators: STRING_OPERATORS },
+  { field: 'root_name', label: 'Root Name', valueInput: 'text', operators: STRING_OPERATORS },
   { field: 'name', label: 'Name', valueInput: 'text', operators: STRING_OPERATORS },
   { field: 'start_time', label: 'Start Time', valueInput: 'time', operators: TIME_OPERATORS },
   { field: 'duration_ns', label: 'Duration (ms)', valueInput: 'number', operators: NUMERIC_OPERATORS },
+  { field: 'span_count', label: 'Span Count', valueInput: 'number', operators: NUMERIC_OPERATORS },
   { field: 'status_code', label: 'Status', valueInput: 'select-status', operators: ENUM_OPERATORS },
   { field: 'kind', label: 'Kind', valueInput: 'select-kind', operators: ENUM_OPERATORS },
+];
+
+// Columns of the trace_summary table (traces mode)
+export const TRACE_FIELDS: readonly BuilderField[] = [
+  'service_name',
+  'root_name',
+  'start_time',
+  'duration_ns',
+  'span_count',
+];
+
+// Columns of the spans table (spans mode)
+export const SPAN_FIELDS: readonly BuilderField[] = [
+  'service_name',
+  'name',
+  'start_time',
+  'duration_ns',
+  'status_code',
+  'kind',
 ];
 
 // Safely single-quotes a string value for SQL; embedded single-quotes are doubled.
@@ -41,6 +63,7 @@ const compileStartTime = (row: BuilderRow): string | null => {
 export function compileRow(row: BuilderRow): string | null {
   switch (row.field) {
     case 'service_name':
+    case 'root_name':
     case 'name':
       return row.value === '' ? null : `${row.field} ${row.operator} ${quoteString(row.value)}`;
 
@@ -49,6 +72,10 @@ export function compileRow(row: BuilderRow): string | null {
       const ns = Math.round(Number(row.value) * MS_TO_NS);
       return `duration_ns ${row.operator} ${ns}`;
     }
+
+    case 'span_count':
+      if (row.value === '' || Number.isNaN(Number(row.value))) return null;
+      return `span_count ${row.operator} ${parseInt(row.value, 10)}`;
 
     case 'status_code':
     case 'kind':
@@ -72,4 +99,8 @@ export function compileCondition(rows: readonly BuilderRow[]): string {
 
 export function fieldDefFor(field: BuilderField): FieldDef {
   return FIELD_DEFS.find((d) => d.field === field)!;
+}
+
+export function fieldDefsFor(mode: ListMode): FieldDef[] {
+  return (mode === 'traces' ? TRACE_FIELDS : SPAN_FIELDS).map(fieldDefFor);
 }

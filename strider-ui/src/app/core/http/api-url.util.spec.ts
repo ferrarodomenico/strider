@@ -8,6 +8,7 @@ describe('buildListUrl', () => {
       orderBy: 'start_time',
       direction: 'DESC',
       condition: '',
+      limit: null,
     });
     expect(url).toContain('orderBy=start_time');
     expect(url).toContain('direction=DESC');
@@ -18,6 +19,7 @@ describe('buildListUrl', () => {
       orderBy: 'start_time',
       direction: 'DESC',
       condition: '',
+      limit: null,
     });
     expect(url).not.toContain('condition');
   });
@@ -27,6 +29,7 @@ describe('buildListUrl', () => {
       orderBy: 'start_time',
       direction: 'DESC',
       condition: '   ',
+      limit: null,
     });
     expect(url).not.toContain('condition');
   });
@@ -36,6 +39,7 @@ describe('buildListUrl', () => {
       orderBy: 'start_time',
       direction: 'DESC',
       condition: "service_name = 'api'",
+      limit: null,
     });
     expect(url).toContain('condition=');
   });
@@ -46,6 +50,7 @@ describe('buildListUrl', () => {
       orderBy: 'start_time',
       direction: 'DESC',
       condition,
+      limit: null,
     });
     // URLSearchParams encodes the value; decode via URLSearchParams API (handles + for spaces)
     expect(url).toContain('condition=');
@@ -59,6 +64,7 @@ describe('buildListUrl', () => {
       orderBy: 'start_time',
       direction: 'ASC',
       condition: '',
+      limit: null,
     });
     expect(url).toContain('/spans?');
     expect(url).toContain('direction=ASC');
@@ -69,6 +75,7 @@ describe('buildListUrl', () => {
       orderBy: 'start_time',
       direction: 'DESC',
       condition: '',
+      limit: null,
     });
     expect(url).not.toContain('4317');
   });
@@ -78,8 +85,29 @@ describe('buildListUrl', () => {
       orderBy: 'start_time',
       direction: 'DESC',
       condition: '',
+      limit: null,
     });
     expect(url).toMatch(/^http:\/\/localhost:8080\/traces\?/);
+  });
+
+  it('includes limit param when a limit is selected', () => {
+    const url = buildListUrl('', '/traces', {
+      orderBy: 'start_time',
+      direction: 'DESC',
+      condition: '',
+      limit: 1000,
+    });
+    expect(new URLSearchParams(url.split('?')[1]).get('limit')).toBe('1000');
+  });
+
+  it('omits limit param when limit is None', () => {
+    const url = buildListUrl('', '/traces', {
+      orderBy: 'start_time',
+      direction: 'DESC',
+      condition: '',
+      limit: null,
+    });
+    expect(url).not.toContain('limit');
   });
 });
 

@@ -1,5 +1,5 @@
 import { inject, Injectable, Signal, signal, WritableSignal } from '@angular/core';
-import { API_BASE_URL, NDJSON_CONTENT_TYPE, STREAM_ROW_CAP } from '@app/core/config/api.config';
+import { API_BASE_URL, NDJSON_CONTENT_TYPE } from '@app/core/config/api.config';
 import { StreamStatus } from '@app/core/models/view.types';
 import { buildListUrl, ListQuery } from './api-url.util';
 
@@ -26,7 +26,6 @@ export interface StreamHandle<T> {
   rows: Signal<readonly T[]>;
   status: Signal<StreamStatus>;
   error: Signal<string | null>;
-  capReached: Signal<boolean>;
   cancel(): void;
 }
 
@@ -38,22 +37,45 @@ export class NdjsonStreamService {
     const _rows: WritableSignal<readonly T[]> = signal<readonly T[]>([]);
     const _status = signal<StreamStatus>('streaming');
     const _error = signal<string | null>(null);
-    const _cap = signal(false);
 
     const ctrl = new AbortController();
 
-    this.fetchStream(path, query, mapLine, ctrl, _rows, _status, _error, _cap);
+    this.fetchStream(path, query, mapLine, ctrl, _rows, _status, _error);
 
     return {
       rows: _rows.asReadonly(),
       status: _status.asReadonly(),
       error: _error.asReadonly(),
-      capReached: _cap.asReadonly(),
       cancel: () => {
         ctrl.abort();
         if (_status() === 'streaming') _status.set('done');
       },
     };
+  }
+
+  /**
+   * Fetches a whole NDJSON list and resolves with every mapped row once the response
+   * is complete. Rejects on a non-2xx status (same message format as stream()), on a
+   * network error, or with an AbortError when signal is aborted.
+   */
+  async fetchAll<T>(
+    path: string,
+    query: ListQuery,
+    mapLine: (raw: unknown) => T,
+    signal: AbortSignal,
+  ): Promise<T[]> {
+    const res = await fetch(buildListUrl(this.baseUrl, path, query), {
+      signal,
+      headers: { Accept: NDJSON_CONTENT_TYPE },
+    });
+    const bodyText = await res.text();
+    if (!res.ok) throw new Error(composeHttpError(res.status, res.statusText, bodyText));
+
+    return bodyText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => mapLine(JSON.parse(line)));
   }
 
   private async fetchStream<T>(
@@ -64,7 +86,6 @@ export class NdjsonStreamService {
     _rows: WritableSignal<readonly T[]>,
     _status: WritableSignal<StreamStatus>,
     _error: WritableSignal<string | null>,
-    _cap: WritableSignal<boolean>,
   ): Promise<void> {
     try {
       const res = await fetch(buildListUrl(this.baseUrl, path, query), {
@@ -89,7 +110,8 @@ export class NdjsonStreamService {
         if (done) {
           const trailing = buf.trim();
           if (trailing.length > 0) {
-            this.appendParsedLine(trailing, mapLine, _rows, _status, _cap, ctrl);
+            const item = mapLine(JSON.parse(trailing));
+            _rows.update((prev) => [...prev, item]);
           }
           if (_status() === 'streaming') _status.set('done');
           break;
@@ -109,44 +131,12 @@ export class NdjsonStreamService {
 
         if (batch.length === 0) continue;
 
-        _rows.update((prev) => {
-          const remaining = STREAM_ROW_CAP - prev.length;
-          if (remaining <= 0) return prev;
-          if (batch.length >= remaining) {
-            _cap.set(true);
-            _status.set('done');
-            ctrl.abort();
-            return [...prev, ...batch.slice(0, remaining)];
-          }
-          return [...prev, ...batch];
-        });
-
-        if (_cap()) break;
+        _rows.update((prev) => [...prev, ...batch]);
       }
     } catch (e) {
       if (ctrl.signal.aborted) return;
       _error.set(e instanceof Error ? e.message : String(e));
       _status.set('error');
     }
-  }
-
-  private appendParsedLine<T>(
-    line: string,
-    mapLine: (raw: unknown) => T,
-    _rows: WritableSignal<readonly T[]>,
-    _status: WritableSignal<StreamStatus>,
-    _cap: WritableSignal<boolean>,
-    ctrl: AbortController,
-  ): void {
-    const item = mapLine(JSON.parse(line));
-    _rows.update((prev) => {
-      if (prev.length >= STREAM_ROW_CAP) {
-        _cap.set(true);
-        _status.set('done');
-        ctrl.abort();
-        return prev;
-      }
-      return [...prev, item];
-    });
   }
 }

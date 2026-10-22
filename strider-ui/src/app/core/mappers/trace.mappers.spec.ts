@@ -22,6 +22,7 @@ const rawTraceSummary: RawTraceSummary = {
   start_time: '2024-01-15T10:00:00Z',
   duration_ns: 42_100_000,
   span_count: 12,
+  ts: 1_705_312_800,
 };
 
 const rawSpanSummary: RawSpanSummary = {
@@ -33,6 +34,7 @@ const rawSpanSummary: RawSpanSummary = {
   start_time: '2024-01-15T10:00:00Z',
   duration_ns: 42_100_000,
   status_code: 0,
+  ts: 1_705_312_800,
 };
 
 const rawSpan: RawSpan = {
@@ -59,6 +61,7 @@ describe('mapTraceSummary', () => {
     expect(result.startTime).toBe('2024-01-15T10:00:00Z');
     expect(result.durationNs).toBe(42_100_000);
     expect(result.spanCount).toBe(12);
+    expect(result.ts).toBe(1_705_312_800);
   });
 });
 
@@ -73,6 +76,7 @@ describe('mapSpanSummary', () => {
     expect(result.startTime).toBe('2024-01-15T10:00:00Z');
     expect(result.durationNs).toBe(42_100_000);
     expect(result.statusCode).toBe(0);
+    expect(result.ts).toBe(1_705_312_800);
   });
 });
 

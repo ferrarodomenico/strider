@@ -7,4 +7,6 @@ export interface SpanSummary {
   startTime: string;
   durationNs: number;
   statusCode: number;
+  /** Ingestion time (Unix seconds). Used by live updates. */
+  ts: number;
 }

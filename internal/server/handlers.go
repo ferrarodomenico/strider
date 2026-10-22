@@ -2,9 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	// "fmt"
 	"iter"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strider/internal/db"
 	"time"
 )
@@ -27,7 +29,7 @@ const (
 //   - Error after the first row -> logged via slog; the stream closes with no more bytes.
 //   - Zero rows and no error -> empty 200 with the NDJSON content-type.
 func streamNDJSON[T any](w http.ResponseWriter, r *http.Request, seq iter.Seq2[T, error]) {
-	flusher, _ := w.(http.Flusher)
+	// flusher, _ := w.(http.Flusher)
 	enc := json.NewEncoder(w)
 	wroteHeader := false
 
@@ -51,9 +53,6 @@ func streamNDJSON[T any](w http.ResponseWriter, r *http.Request, seq iter.Seq2[T
 			slog.Error("encode ndjson row", "err", err)
 			return
 		}
-		if flusher != nil {
-			flusher.Flush()
-		}
 	}
 
 	// No rows and no error: commit an empty 200 NDJSON response.
@@ -72,13 +71,20 @@ func handleFindAll(d *db.DB, kind listKind) http.HandlerFunc {
 		orderBy := db.OrderByField(query.Get("orderBy"))
 		direction := db.Direction(query.Get("direction"))
 		condition := query.Get("condition")
+		limitStr := query.Get("limit")
+		limit := uint32(0)
+		if limitStr != "" {
+			if n, err := strconv.ParseUint(limitStr, 10, 32); err == nil {
+				limit = uint32(n)
+			}
+		}
 		ctx := r.Context()
 
 		switch kind {
 		case kindTraces:
-			streamNDJSON(w, r, d.FindAllTraces(ctx, orderBy, direction, condition))
+			streamNDJSON(w, r, d.FindAllTraces(ctx, orderBy, direction, condition, limit))
 		case kindSpans:
-			streamNDJSON(w, r, d.FindAllSpans(ctx, orderBy, direction, condition))
+			streamNDJSON(w, r, d.FindAllSpans(ctx, orderBy, direction, condition, limit))
 		}
 	}
 }
@@ -97,6 +103,32 @@ func handleFindTraceById(d *db.DB) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(trace)
+	}
+}
+
+func handleLiveUpdates(d *db.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+		for {
+			currentChannel := d.EventEmitter.Current()
+			select {
+			case <-currentChannel:
+				_, err := w.Write([]byte("data: new spans available\n\n"))
+				if err != nil {
+					slog.Error("write event", "err", err)
+					return
+				}
+				flusher.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
 	}
 }
 

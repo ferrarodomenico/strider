@@ -4,6 +4,7 @@ import {
   compileRow,
   FIELD_DEFS,
   fieldDefFor,
+  fieldDefsFor,
   quoteString,
 } from './query-builder.util';
 
@@ -34,18 +35,28 @@ describe('quoteString (AC-4 #20)', () => {
 });
 
 describe('FIELD_DEFS (AC-4 #16-18)', () => {
-  it('contains exactly 6 fields', () => {
-    expect(FIELD_DEFS).toHaveLength(6);
+  it('contains exactly 8 fields', () => {
+    expect(FIELD_DEFS).toHaveLength(8);
   });
 
   it('contains all required fields in order', () => {
     const fields = FIELD_DEFS.map((d) => d.field);
     expect(fields).toContain('service_name');
+    expect(fields).toContain('root_name');
     expect(fields).toContain('name');
     expect(fields).toContain('start_time');
     expect(fields).toContain('duration_ns');
+    expect(fields).toContain('span_count');
     expect(fields).toContain('status_code');
     expect(fields).toContain('kind');
+  });
+
+  it('span_count has numeric operators: =, !=, <, >', () => {
+    expect(fieldDefFor('span_count').operators).toEqual(['=', '!=', '<', '>']);
+  });
+
+  it('root_name has string operators: =, !=, LIKE', () => {
+    expect(fieldDefFor('root_name').operators).toEqual(['=', '!=', 'LIKE']);
   });
 
   // AC-4 #17: string-type fields use = != LIKE
@@ -90,6 +101,31 @@ describe('FIELD_DEFS (AC-4 #16-18)', () => {
   it('kind has enum operators: =, !=', () => {
     const def = fieldDefFor('kind');
     expect(def.operators).toEqual(['=', '!=']);
+  });
+});
+
+describe('fieldDefsFor (per-mode field sets)', () => {
+  // traces mode queries trace_summary
+  it('returns only trace_summary columns for traces', () => {
+    expect(fieldDefsFor('traces').map((d) => d.field)).toEqual([
+      'service_name',
+      'root_name',
+      'start_time',
+      'duration_ns',
+      'span_count',
+    ]);
+  });
+
+  // spans mode queries spans
+  it('returns only spans columns for spans', () => {
+    expect(fieldDefsFor('spans').map((d) => d.field)).toEqual([
+      'service_name',
+      'name',
+      'start_time',
+      'duration_ns',
+      'status_code',
+      'kind',
+    ]);
   });
 });
 
@@ -188,6 +224,30 @@ describe('compileRow', () => {
 
     it('returns null when duration_ns value is not a number', () => {
       expect(compileRow(row({ field: 'duration_ns', value: 'abc' }))).toBeNull();
+    });
+  });
+
+  describe('root_name (traces string field)', () => {
+    it('compiles root_name LIKE value with escaped quotes', () => {
+      expect(compileRow(row({ field: 'root_name', operator: 'LIKE', value: "%o'k%" }))).toBe(
+        "root_name LIKE '%o''k%'",
+      );
+    });
+  });
+
+  describe('span_count (integer, no unit conversion)', () => {
+    it('compiles span_count > 5 as an unquoted integer', () => {
+      expect(compileRow(row({ field: 'span_count', operator: '>', value: '5' }))).toBe(
+        'span_count > 5',
+      );
+    });
+
+    it('returns null when span_count value is empty', () => {
+      expect(compileRow(row({ field: 'span_count', value: '' }))).toBeNull();
+    });
+
+    it('returns null when span_count value is not a number', () => {
+      expect(compileRow(row({ field: 'span_count', value: 'abc' }))).toBeNull();
     });
   });
 

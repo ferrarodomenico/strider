@@ -23,6 +23,31 @@
   flex-wrap: wrap;
 }
 
+// Pushed to the right edge of the toolbar. The refresh button keeps its own
+// margin-left: auto, which resolves to 0 inside this content-sized wrapper.
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.live-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+
+  input {
+    margin: 0;
+    accent-color: var(--color-accent);
+    cursor: pointer;
+  }
+}
+
 .refresh-btn {
   display: flex;
   align-items: center;

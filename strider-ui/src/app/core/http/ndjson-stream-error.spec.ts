@@ -14,7 +14,7 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
-const baseQuery = { orderBy: 'start_time' as const, direction: 'DESC' as const, condition: '' };
+const baseQuery = { orderBy: 'start_time' as const, direction: 'DESC' as const, condition: '', limit: null };
 const identity = (raw: unknown) => raw;
 
 /** Stub global fetch to return a non-ok response with a given text body. */

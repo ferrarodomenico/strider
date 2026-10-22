@@ -6,6 +6,8 @@ export interface ListQuery {
   orderBy: OrderByField;
   direction: Direction;
   condition: string;
+  /** `null` means no limit. Regular loads pass a ResultLimit; live updates pass the remaining capacity. */
+  limit: number | null;
 }
 
 export function buildListUrl(baseUrl: string, path: string, q: ListQuery): string {
@@ -13,6 +15,7 @@ export function buildListUrl(baseUrl: string, path: string, q: ListQuery): strin
   params.set('orderBy', q.orderBy);
   params.set('direction', q.direction);
   if (q.condition.trim().length > 0) params.set('condition', q.condition);
+  if (q.limit !== null) params.set('limit', String(q.limit));
   return `${baseUrl}${path}?${params.toString()}`;
 }
 

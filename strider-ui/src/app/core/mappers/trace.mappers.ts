@@ -11,6 +11,7 @@ export const mapTraceSummary = (r: RawTraceSummary): TraceSummary => ({
   startTime: r.start_time,
   durationNs: r.duration_ns,
   spanCount: r.span_count,
+  ts: r.ts,
 });
 
 export const mapSpanSummary = (r: RawSpanSummary): SpanSummary => ({
@@ -22,6 +23,7 @@ export const mapSpanSummary = (r: RawSpanSummary): SpanSummary => ({
   startTime: r.start_time,
   durationNs: r.duration_ns,
   statusCode: r.status_code,
+  ts: r.ts,
 });
 
 export const mapSpan = (r: RawSpan): Span => ({

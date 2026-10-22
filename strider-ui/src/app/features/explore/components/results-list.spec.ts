@@ -29,6 +29,7 @@ const TRACE: TraceSummary = {
   startTime: '2024-01-01T00:00:00Z',
   durationNs: 5_000_000,
   spanCount: 3,
+  ts: 1_704_067_200,
 };
 
 const SPAN: SpanSummary = {
@@ -40,6 +41,7 @@ const SPAN: SpanSummary = {
   startTime: '2024-01-01T00:00:00Z',
   durationNs: 1_000_000,
   statusCode: 0,
+  ts: 1_704_067_200,
 };
 
 function createFixture(

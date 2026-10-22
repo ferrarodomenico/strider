@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { BuilderRow } from '@app/core/models/builder-row.model';
+import { BuilderRow, FieldDef } from '@app/core/models/builder-row.model';
 import { QueryBuilderRow } from './query-builder-row';
 
 @Component({
@@ -21,6 +21,7 @@ import { QueryBuilderRow } from './query-builder-row';
         }
         <app-query-builder-row
           [row]="row"
+          [fields]="fields()"
           (rowChange)="updateRow($event)"
           (remove)="removeRow(row.id)"
         />
@@ -82,13 +83,15 @@ import { QueryBuilderRow } from './query-builder-row';
 })
 export class QueryBuilder {
   readonly rows = input.required<BuilderRow[]>();
+  readonly fields = input.required<FieldDef[]>();
   readonly rowsChange = output<BuilderRow[]>();
 
   protected addRow(): void {
+    const [def] = this.fields();
     const newRow: BuilderRow = {
       id: crypto.randomUUID(),
-      field: 'service_name',
-      operator: '=',
+      field: def.field,
+      operator: def.operators[0],
       value: '',
       connector: 'AND',
     };

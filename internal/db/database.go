@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strider/internal/event"
 	"strider/internal/traces"
 	"strings"
 	"sync"
@@ -20,12 +21,13 @@ const (
 	flushIntervalVar = "FLUSH_INTERVAL"
 	maxBufSizeVar    = "MAX_BUFFER_SIZE"
 	mockDataVar      = "MOCK_DATA"
+	dbTimeoutVar     = "DB_TIMEOUT"
 )
 
 const (
 	defaultFlushInterval = 10 * time.Second
 	defaultMaxBufSize    = 10_000
-	defaultTimeout       = 5 * time.Second
+	defaultTimeout       = 1 * time.Minute
 )
 
 type OrderByField string
@@ -43,12 +45,13 @@ const (
 )
 
 type DB struct {
-	conn       clickhouse.Conn
-	mu         sync.Mutex
-	buf        []traces.Span
-	interval   time.Duration
-	maxBufSize int
-	timeout    time.Duration
+	conn         clickhouse.Conn
+	mu           sync.Mutex
+	buf          []traces.Span
+	interval     time.Duration
+	maxBufSize   int
+	timeout      time.Duration
+	EventEmitter *event.EventEmitter
 }
 
 func New() (*DB, error) {
@@ -64,7 +67,7 @@ func New() (*DB, error) {
 	}
 
 	timeout := defaultTimeout
-	if v := os.Getenv("DB_TIMEOUT"); v != "" {
+	if v := os.Getenv(dbTimeoutVar); v != "" {
 		if parsed, err := time.ParseDuration(v); err == nil {
 			timeout = parsed
 		}
@@ -102,10 +105,11 @@ func New() (*DB, error) {
 	}
 
 	d := &DB{
-		conn:       conn,
-		interval:   interval,
-		maxBufSize: maxBufSize,
-		timeout:    timeout,
+		conn:         conn,
+		interval:     interval,
+		maxBufSize:   maxBufSize,
+		timeout:      timeout,
+		EventEmitter: event.NewEventEmitter(),
 	}
 
 	if err := d.migrate(context.Background()); err != nil {
@@ -138,50 +142,64 @@ func (d *DB) Close() error {
 	return d.conn.Close()
 }
 
+const createSpansTable = `
+	CREATE TABLE IF NOT EXISTS spans (
+		trace_id            String,
+		span_id             String,
+		parent_span_id      String,
+		service_name        LowCardinality(String),
+		name                String,
+		kind                Int32,
+		start_time          DateTime64(9),
+		duration_ns         UInt64,
+		status_code         Int32,
+		status_message      String,
+		attributes          Map(String, String),
+		resource_attributes Map(String, String),
+		ts                  UInt32 DEFAULT toUnixTimestamp(now())
+	) ENGINE = MergeTree()
+	ORDER BY (service_name, start_time, trace_id, span_id)
+	`
+
+// createTraceSummaryTable stores one summary per trace.
+//
+// trace_summary_mv runs once per INSERT block, so a trace whose spans arrive in several
+// inserts produces several partial rows. AggregatingMergeTree combines them on merge (and
+// at read time with FINAL) using the function declared on each column:
+//
+//   - span_count: sum, so partial counts add up to the total.
+//   - root fields: max. Partial rows without the root span carry the type default (” or 0,
+//     the anyIf default), so the max is always the root's value.
+const createTraceSummaryTable = `
+	CREATE TABLE IF NOT EXISTS trace_summary (
+		trace_id     String,
+		root_name    SimpleAggregateFunction(max, String),
+		service_name SimpleAggregateFunction(max, String),
+		start_time   SimpleAggregateFunction(max, DateTime64(9)),
+		duration_ns  SimpleAggregateFunction(max, UInt64),
+		span_count   SimpleAggregateFunction(sum, UInt64),
+		ts           SimpleAggregateFunction(max, UInt32)
+	) ENGINE = AggregatingMergeTree()
+	ORDER BY (trace_id)
+	`
+
+const createTraceSummaryMV = `
+	CREATE MATERIALIZED VIEW IF NOT EXISTS trace_summary_mv
+	TO trace_summary
+	AS
+	SELECT
+		trace_id,
+		anyIf(name, parent_span_id = '')         AS root_name,
+		anyIf(service_name, parent_span_id = '') AS service_name,
+		anyIf(start_time, parent_span_id = '')   AS start_time,
+		anyIf(duration_ns, parent_span_id = '')  AS duration_ns,
+		count(*)                                  AS span_count,
+		max(ts)                                   AS ts
+	FROM spans
+	GROUP BY trace_id
+	`
+
 func (d *DB) migrate(ctx context.Context) error {
-	const createSpansTable = `
-		CREATE TABLE IF NOT EXISTS spans (
-			trace_id            String,
-			span_id             String,
-			parent_span_id      String,
-			service_name        LowCardinality(String),
-			name                String,
-			kind                Int32,
-			start_time          DateTime64(9),
-			duration_ns         UInt64,
-			status_code         Int32,
-			status_message      String,
-			attributes          Map(String, String),
-			resource_attributes Map(String, String)
-		) ENGINE = MergeTree()
-		ORDER BY (service_name, start_time, trace_id, span_id)
-		`
-	const createTraceSummaryTable = `
-		CREATE TABLE IF NOT EXISTS trace_summary (
-			trace_id     String,
-			root_name    String,
-			service_name LowCardinality(String),
-			start_time   DateTime64(9),
-			duration_ns  UInt64,
-			span_count   UInt64
-		) ENGINE = ReplacingMergeTree()
-		ORDER BY (trace_id)
-		TTL toDateTime(start_time) + INTERVAL 7 DAY
-		`
-	const createTraceSummaryMV = `
-		CREATE MATERIALIZED VIEW IF NOT EXISTS trace_summary_mv
-		TO trace_summary
-		AS
-		SELECT
-			trace_id,
-			anyIf(name, parent_span_id = '')         AS root_name,
-			anyIf(service_name, parent_span_id = '') AS service_name,
-			anyIf(start_time, parent_span_id = '')   AS start_time,
-			anyIf(duration_ns, parent_span_id = '')  AS duration_ns,
-			count(*)                                  AS span_count
-		FROM spans
-		GROUP BY trace_id
-		`
 	if err := d.conn.Exec(ctx, createSpansTable); err != nil {
 		return fmt.Errorf("create spans table: %w", err)
 	}
@@ -246,30 +264,77 @@ func (d *DB) flush(ctx context.Context) {
 	}
 }
 
+// saveSpans writes spans to ClickHouse using the columnar batch API: one typed slice per
+// column, appended in a single call each. This avoids the per-row reflection of
+// AppendStruct and matches the native protocol, which is columnar.
 func (d *DB) saveSpans(ctx context.Context, spans []traces.Span) error {
-	batch, err := d.conn.PrepareBatch(ctx, "INSERT INTO spans")
+	batch, err := d.conn.PrepareBatch(ctx, "INSERT INTO spans ("+spans[0].Columns()+")")
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
 	}
 
-	for _, s := range spans {
-		if err := batch.AppendStruct(&s); err != nil {
-			return fmt.Errorf("append span %s: %w", s.SpanId, err)
+	n := len(spans)
+	var (
+		traceIDs      = make([]string, n)
+		spanIDs       = make([]string, n)
+		parentIDs     = make([]string, n)
+		serviceNames  = make([]string, n)
+		names         = make([]string, n)
+		kinds         = make([]int32, n)
+		startTimes    = make([]time.Time, n)
+		durations     = make([]uint64, n)
+		statusCodes   = make([]int32, n)
+		statusMsgs    = make([]string, n)
+		attributes    = make([]map[string]string, n)
+		resourceAttrs = make([]map[string]string, n)
+		tsCol         = make([]uint32, n)
+	)
+	// One ingestion timestamp per batch; trace_summary_mv takes max(ts) per trace.
+	now := uint32(time.Now().Unix())
+	for i := range spans {
+		s := &spans[i]
+		traceIDs[i] = s.TraceId
+		spanIDs[i] = s.SpanId
+		parentIDs[i] = s.ParentSpanId
+		serviceNames[i] = s.ServiceName
+		names[i] = s.Name
+		kinds[i] = s.Kind
+		startTimes[i] = s.StartTime
+		durations[i] = s.DurationNs
+		statusCodes[i] = s.StatusCode
+		statusMsgs[i] = s.StatusMessage
+		attributes[i] = s.Attributes
+		resourceAttrs[i] = s.ResourceAttributes
+		tsCol[i] = now
+	}
+
+	// Same order as traces.Span.Columns().
+	columns := []any{
+		traceIDs, spanIDs, parentIDs, serviceNames, names, kinds,
+		startTimes, durations, statusCodes, statusMsgs, attributes, resourceAttrs, tsCol,
+	}
+	for i, col := range columns {
+		if err := batch.Column(i).Append(col); err != nil {
+			return fmt.Errorf("append column %d: %w", i, err)
 		}
 	}
 
-	return batch.Send()
+	batchSendErr := batch.Send()
+	if batchSendErr == nil {
+		d.EventEmitter.Emit() // Notify listeners that new spans have been saved.
+	}
+	return batchSendErr
 }
 
 // countBucketsSQL counts traces per UTC bucket of @interval_s seconds.
 //
-// The inner query yields one row per trace with its earliest known root start, limited to
-// [@start, @end]. trace_summary_mv writes one row per INSERT block, so a trace whose spans
-// arrived in several inserts has several rows; a block without the root span carries the
-// zero start_time (anyIf default). GROUP BY trace_id dedupes and the epoch filter drops
-// root-less rows. FINAL is deliberately not used: it keeps only the last-inserted row,
-// which may be root-less. Consequence: a trace whose root span never reached trace_summary
-// is not counted.
+// The inner query yields one row per trace with its root start, limited to [@start, @end].
+// trace_summary_mv writes one row per INSERT block, so until background merges combine
+// them, a trace whose spans arrived in several inserts has several partial rows; a partial
+// row without the root span carries the zero start_time (anyIf default). The epoch filter
+// drops those rows and GROUP BY trace_id dedupes the rest, so the result is the same
+// whether or not the parts have been merged yet, without relying on FINAL. Consequence: a
+// trace whose root span never reached trace_summary is not counted.
 //
 // INTERVAL n SECOND in UTC is aligned to multiples of n since the Unix epoch (1h -> :00,
 // 24h -> UTC midnight), so the fill STEP lands on bucket starts. WITH FILL deliberately
@@ -324,20 +389,31 @@ func intervalSeconds(interval time.Duration) int64 {
 	return int64(interval / time.Second)
 }
 
-// findAll streams rows of T from the query built by buildListQuery. Iteration stops
-// early when the caller breaks. Errors are yielded as the second value, after which
-// the iterator yields no further values.
-func findAll[T any](
+// findAll streams rows from table, scanning each one into row. The same row is
+// reused for every result: a yielded value is only valid until the next
+// iteration. Iteration stops early when the caller breaks. Errors are yielded as
+// the second value, after which the iterator yields no further values.
+func findAll[T traces.Scannable](
 	ctx context.Context,
 	d *DB,
-	prefix string,
+	row T,
+	table string,
+	final bool,
 	orderBy OrderByField,
 	direction Direction,
 	condition string,
+	limit uint32,
 ) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		var zero T
-		q := d.buildListQuery(prefix, orderBy, direction, condition)
+		fields, ptrs := row.Columns()
+
+		from := table
+		if final {
+			from += " FINAL"
+		}
+		prefix := "SELECT " + fields + " FROM " + from + " "
+		q := d.buildListQuery(prefix, orderBy, direction, condition, limit)
 
 		rows, err := d.conn.Query(ctx, q)
 		if err != nil {
@@ -347,8 +423,7 @@ func findAll[T any](
 		defer rows.Close()
 
 		for rows.Next() {
-			var row T
-			if err := rows.ScanStruct(&row); err != nil {
+			if err := rows.Scan(ptrs...); err != nil {
 				yield(zero, fmt.Errorf("scan: %w", err))
 				return
 			}
@@ -363,38 +438,39 @@ func findAll[T any](
 	}
 }
 
-// FindAllTraces streams trace summaries one by one. Iteration stops early when
-// the caller breaks. Errors are yielded as the second value, after which the
-// iterator yields no further values.
+// FindAllTraces streams trace summaries one by one. FINAL combines the partial rows
+// written by trace_summary_mv (see createTraceSummaryTable), so each trace appears once
+// with its total span_count. The yielded pointer is reused: it is only valid until the
+// next iteration. Iteration stops early when the caller breaks. Errors are yielded as the
+// second value, after which the iterator yields no further values.
 func (d *DB) FindAllTraces(
 	ctx context.Context,
 	orderBy OrderByField,
 	direction Direction,
 	condition string,
-) iter.Seq2[traces.TraceSummary, error] {
-	return findAll[traces.TraceSummary](
-		ctx, d, `SELECT * FROM trace_summary FINAL `, orderBy, direction, condition,
-	)
+	limit uint32,
+) iter.Seq2[*traces.TraceSummary, error] {
+	return findAll(ctx, d, &traces.TraceSummary{}, "trace_summary", true,
+		orderBy, direction, condition, limit)
 }
 
-// FindAllSpans streams span summaries one by one. Iteration stops early when the
-// caller breaks. Errors are yielded as the second value, after which the iterator
-// yields no further values. OrderBySpanCount is normalized to OrderByStartTime
-// because span_count is not a column on the spans table.
+// FindAllSpans streams span summaries one by one. The yielded pointer is reused:
+// it is only valid until the next iteration. Iteration stops early when the
+// caller breaks. Errors are yielded as the second value, after which the
+// iterator yields no further values. OrderBySpanCount is normalized to
+// OrderByStartTime because span_count is not a column on the spans table.
 func (d *DB) FindAllSpans(
 	ctx context.Context,
 	orderBy OrderByField,
 	direction Direction,
 	condition string,
-) iter.Seq2[traces.SpanSummary, error] {
+	limit uint32,
+) iter.Seq2[*traces.SpanSummary, error] {
 	if orderBy == OrderBySpanCount {
 		orderBy = OrderByStartTime
 	}
-	return findAll[traces.SpanSummary](
-		ctx, d,
-		`SELECT trace_id, span_id, service_name, name, kind, start_time, duration_ns, status_code FROM spans `,
-		orderBy, direction, condition,
-	)
+	return findAll(ctx, d, &traces.SpanSummary{}, "spans", false,
+		orderBy, direction, condition, limit)
 }
 
 // FindByTraceId fetches all spans for the given trace id and assembles them
@@ -426,6 +502,7 @@ func (d *DB) buildListQuery(
 	orderBy OrderByField,
 	direction Direction,
 	condition string,
+	limit uint32,
 ) string {
 	if orderBy == "" {
 		orderBy = OrderByStartTime
@@ -433,8 +510,12 @@ func (d *DB) buildListQuery(
 	if direction == "" {
 		direction = Desc
 	}
-	return prefix + d.buildWhere(condition) +
+	query := prefix + d.buildWhere(condition) +
 		` ORDER BY ` + string(orderBy) + ` ` + string(direction)
+	if limit > 0 {
+		query += ` LIMIT ` + strconv.Itoa(int(limit))
+	}
+	return query
 }
 
 func buildTrace(spans []traces.Span) traces.Trace {

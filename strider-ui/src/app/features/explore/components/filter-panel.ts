@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
-import { BuilderRow } from '@app/core/models/builder-row.model';
+import { BuilderRow, FieldDef } from '@app/core/models/builder-row.model';
 import { FilterMode } from '@app/core/models/view.types';
 import { QueryBuilder } from './query-builder';
 import { RawConditionInput } from './raw-condition-input';
@@ -61,7 +61,11 @@ import { RawConditionInput } from './raw-condition-input';
                 />
               }
               @case ('builder') {
-                <app-query-builder [rows]="rows()" (rowsChange)="rowsChange.emit($event)" />
+                <app-query-builder
+                  [rows]="rows()"
+                  [fields]="fields()"
+                  (rowsChange)="rowsChange.emit($event)"
+                />
               }
             }
           </div>
@@ -223,6 +227,7 @@ export class FilterPanel {
   readonly filterMode = input.required<FilterMode>();
   readonly rawCondition = input.required<string>();
   readonly rows = input.required<BuilderRow[]>();
+  readonly fields = input.required<FieldDef[]>();
   readonly compiled = input.required<string>();
   readonly filterModeChange = output<FilterMode>();
   readonly rawConditionChange = output<string>();

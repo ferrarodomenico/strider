@@ -11,20 +11,8 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
-type SpanInterface interface {
-	TraceId() string
-	SpanId() string
-	ParentSpanId() string
-	ServiceName() string
-	Name() string
-	Kind() int32
-	StartTime() time.Time
-	DurationNs() uint64
-	StatusCode() int32
-	StatusMessage() string
-	Attributes() map[string]string
-	ResourceAttributes() map[string]string
-	SubSpans() []*Span
+type Scannable interface {
+	Columns() (string, []any)
 }
 
 type Trace struct {
@@ -43,6 +31,19 @@ type TraceSummary struct {
 	StartTime   time.Time `json:"start_time" ch:"start_time"`
 	DurationNs  uint64    `json:"duration_ns" ch:"duration_ns"`
 	SpanCount   uint64    `json:"span_count" ch:"span_count"`
+	Ts          uint32    `json:"ts" ch:"ts"`
+}
+
+func (t *TraceSummary) Columns() (string, []any) {
+	return "trace_id, root_name, service_name, start_time, duration_ns, span_count, ts", []any{
+		&t.TraceId,
+		&t.RootName,
+		&t.ServiceName,
+		&t.StartTime,
+		&t.DurationNs,
+		&t.SpanCount,
+		&t.Ts,
+	}
 }
 
 type Span struct {
@@ -58,6 +59,11 @@ type Span struct {
 	StatusMessage      string            `json:"status_message" ch:"status_message"      `
 	Attributes         map[string]string `json:"attributes" ch:"attributes"          `
 	ResourceAttributes map[string]string `json:"resource_attributes" ch:"resource_attributes" `
+	TS                 uint32            `json:"ts" ch:"ts"                  `
+}
+
+func (s *Span) Columns() string {
+	return "trace_id, span_id, parent_span_id, service_name, name, kind, start_time, duration_ns, status_code, status_message, attributes, resource_attributes, ts"
 }
 
 type SpanNode struct {
@@ -74,6 +80,21 @@ type SpanSummary struct {
 	StartTime   time.Time `json:"start_time" ch:"start_time"`
 	DurationNs  uint64    `json:"duration_ns" ch:"duration_ns"`
 	StatusCode  int32     `json:"status_code" ch:"status_code"`
+	TS          uint32    `json:"ts" ch:"ts"`
+}
+
+func (s *SpanSummary) Columns() (string, []any) {
+	return "trace_id, span_id, service_name, name, kind, start_time, duration_ns, status_code, ts", []any{
+		&s.TraceId,
+		&s.SpanId,
+		&s.ServiceName,
+		&s.Name,
+		&s.Kind,
+		&s.StartTime,
+		&s.DurationNs,
+		&s.StatusCode,
+		&s.TS,
+	}
 }
 
 type TracesOverInterval struct {

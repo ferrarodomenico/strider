@@ -22,10 +22,6 @@ import { StreamStatus } from '@app/core/models/view.types';
         <span class="error-msg" role="alert">{{ error() }}</span>
       }
 
-      @if (capReached()) {
-        <span class="cap-notice">Row cap (10,000) reached.</span>
-      }
-
       @if (status() !== 'idle') {
         <span class="row-count" aria-live="off">{{ rowCount() }} row{{ rowCount() === 1 ? '' : 's' }}</span>
       }
@@ -95,11 +91,6 @@ import { StreamStatus } from '@app/core/models/view.types';
         font-family: var(--font-mono);
       }
 
-      .cap-notice {
-        color: var(--color-dim);
-        font-style: italic;
-      }
-
       .row-count {
         color: var(--color-dim);
         margin-left: auto;
@@ -110,7 +101,6 @@ import { StreamStatus } from '@app/core/models/view.types';
 export class StreamStatusBar {
   readonly status = input.required<StreamStatus>();
   readonly error = input<string | null>(null);
-  readonly capReached = input.required<boolean>();
   readonly rowCount = input.required<number>();
   readonly cancel = output<void>();
 
@@ -118,7 +108,6 @@ export class StreamStatusBar {
     const s = this.status();
     if (s === 'streaming') return 'Streaming results…';
     if (s === 'error') return `Streaming error: ${this.error() ?? 'unknown'}`;
-    if (s === 'done' && this.capReached()) return 'Streaming stopped: row cap reached.';
     if (s === 'done') return 'Streaming complete.';
     return '';
   });

@@ -5,6 +5,7 @@ export interface RawTraceSummary {
   start_time: string;
   duration_ns: number;
   span_count: number;
+  ts: number;
 }
 
 export interface RawSpanSummary {
@@ -16,6 +17,7 @@ export interface RawSpanSummary {
   start_time: string;
   duration_ns: number;
   status_code: number;
+  ts: number;
 }
 
 export interface RawSpan {

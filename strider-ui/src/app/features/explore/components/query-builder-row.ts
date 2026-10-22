@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
 import { KIND_FILTER_OPTIONS, STATUS_FILTER_OPTIONS } from '@app/core/config/otel.constants';
 import { BuilderRow, FieldDef } from '@app/core/models/builder-row.model';
 import { BuilderField, Operator, RelativeRange, TimeMode } from '@app/core/models/view.types';
-import { FIELD_DEFS, fieldDefFor } from '@app/core/util/query-builder.util';
+import { fieldDefFor } from '@app/core/util/query-builder.util';
 
 const RELATIVE_RANGES: RelativeRange[] = ['15m', '1h', '24h', '7d'];
 
@@ -18,7 +18,7 @@ const RELATIVE_RANGES: RelativeRange[] = ['15m', '1h', '24h', '7d'];
         (change)="onFieldChange($event)"
         aria-label="Filter field"
       >
-        @for (def of fieldDefs; track def.field) {
+        @for (def of fields(); track def.field) {
           <option [value]="def.field" [selected]="def.field === row().field">{{ def.label }}</option>
         }
       </select>
@@ -169,10 +169,9 @@ const RELATIVE_RANGES: RelativeRange[] = ['15m', '1h', '24h', '7d'];
 })
 export class QueryBuilderRow {
   readonly row = input.required<BuilderRow>();
+  readonly fields = input.required<FieldDef[]>();
   readonly rowChange = output<BuilderRow>();
   readonly remove = output<void>();
-
-  protected readonly fieldDefs: FieldDef[] = FIELD_DEFS;
   protected readonly kindOptions = KIND_FILTER_OPTIONS;
   protected readonly statusOptions = STATUS_FILTER_OPTIONS;
   protected readonly relativeRanges = RELATIVE_RANGES;
